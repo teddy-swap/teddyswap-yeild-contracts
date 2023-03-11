@@ -9,8 +9,8 @@
     "start": "npm run build && node dist/app/index.js"
   },
   "dependencies": {
-    "@harmoniclabs/cardanocli-pluts": "^0.1.2-dev17",
-    "@harmoniclabs/plu-ts": "^0.2.0-dev21",
+    "@harmoniclabs/cardanocli-pluts": "^0.1.2",
+    "@harmoniclabs/plu-ts": "^0.2.0",
     "blake2": "^4.1.1"
   },
   "devDependencies": {

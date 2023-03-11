@@ -1,4 +1,4 @@
-import { PCredential, PCurrencySymbol, PScriptContext, PTxOutRef, PValidatorHash, PaymentCredentials, addUtilityForType, bool, bs, data, int, pBool, perror, pfn, plam, plet, pmatch, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
+import { PCredential, PCurrencySymbol, PScriptContext, PTxOut, PTxOutRef, PValidatorHash, PaymentCredentials, TxOut, addUtilityForType, bool, bs, data, int, pBool, perror, pfn, plam, plet, pmatch, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
 
 const PReserveDatum = pstruct({
     PReserveDatum: {
@@ -14,7 +14,6 @@ const PReserveDatum = pstruct({
 const PReserveRedeemer = pstruct({
     Harvest: {},
     BackToOwner: {
-        ownInputIdx: int,
         ownerOracleRefInIdx: int
     }
 });
@@ -27,8 +26,8 @@ const tedyYeildReserve = pfn([
     PScriptContext.type
 ],  bool)
 ((
-    oracleValHash, 
-    oracleCurrSymId, 
+    oracleValHash,      // yeildReserveOwnerOracle
+    oracleCurrSymId,    // NFT currency symbol that must be present
     datum, rdmr, ctx
 ) => {
 
@@ -43,24 +42,57 @@ const tedyYeildReserve = pfn([
     ).in( ownUtxoRef => 
 
         pmatch( rdmr )
-        .onBackToOwner( _ => _.extract("ownInputIdx").in(({ ownInputIdx }) => 
+        .onBackToOwner( _ => _.extract("ownerOracleRefInIdx").in(({ ownerOracleRefInIdx }) => 
 
-            txInfo.extract("inputs","outputs").in( tx =>
-                
-                tx.inputs.at( ownInputIdx )
-                .extract("resolved","utxoRef").in( ownInput =>
-                    
-                    ownInput.utxoRef.eq( ownUtxoRef )
-                    .and(
-                    )
+            txInfo.extract("inputs","refInputs","outputs").in( tx =>
 
+            tx.refInputs.at( ownerOracleRefInIdx )
+            .extract("resolved").in( ({ resolved: _oracleRefIn }) => 
+            _oracleRefIn.extract("address","value","datum").in( oracleRefIn =>
+
+            plet(
+                plam( PTxOut.type, PCredential.type )
+                ( out =>
+                    out.extract("address").in( ({ address: outAddress }) =>
+                    outAddress.extract("credential").in( ({ credential }) =>
+                        credential
+                    ))
                 )
-
-            ))
-        )
+            ).in( getOutCreds => 
+                // ref input has required NFT
+                oracleRefIn.value.some( entry => entry.fst.eq( oracleCurrSymId ) )
+                .and(
+                    // is actually a reference input form the oracle
+                    oracleRefIn.address.extract("credential").in(({ credential }) =>
+                        pmatch( credential )
+                        .onPPubKeyCredential( _ => perror( bool ) )
+                        .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
+                            valHash.eq( oracleValHash ) 
+                        )) 
+                    )
+                )
+                .and(
+                    // requires one input from the owner
+                    // (the owner mustbe aware of the transfer)
+                    tx.inputs.some( _in => 
+                    _in.extract("resolved").in( ({ resolved }) => 
+                        getOutCreds.$( resolved ).eq( oracleRefIn.datum as any )
+                    ))
+                )
+                .and(
+                    // requires all outputs back to owner
+                    tx.outputs.every( out =>
+                        getOutCreds.$( out ).eq( oracleRefIn.datum as any )
+                    )
+                )
+                
+            )))
+                
+            )
+        ))
         .onHarvest( _ =>
         )
-    
+
     ))
 
 

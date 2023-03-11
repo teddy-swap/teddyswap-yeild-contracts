@@ -1,12 +1,4 @@
-import { PCredential, PCurrencySymbol, POutputDatum, PScriptContext, PTxOutRef, asData, bool, bs, data, int, pBSToData, pBool, perror, pfn, pisEmpty, plam, plet, pmatch, pstruct, punBData, punConstrData, punsafeConvertType } from "@harmoniclabs/plu-ts";
-
-const PYeildOwnerDatum = pstruct({
-    PYeildOwnerDatum: {
-        // likely a multi-sig at the beginning;
-        // upgraded to community owned smart contract in the future
-        owner: PCredential.type
-    }
-});
+import { PCredential, POutputDatum, PScriptContext, PTxInInfo, PTxInfo, PTxOutRef, bool, bs, int, pBool, perror, pfn, plam, plet, pmatch, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
 
 const PYeildOwnerRedeemer = pstruct({
     ChangeOwner: {
@@ -22,45 +14,42 @@ const PYeildOwnerRedeemer = pstruct({
  * however these might be required and checked by other contracts
  */
 const yeildReserveOwnerOracle = pfn([
-    PYeildOwnerDatum.type,
+    // owner
+    // likely a multi-sig at the beginning;
+    // upgraded to community owned smart contract in the future
+    PCredential.type,
     PYeildOwnerRedeemer.type,
     PScriptContext.type
 ],  bool)
-(( datum, rdmr, _ctx ) => 
+(( currentOwner, rdmr, _ctx ) => 
+
 
     _ctx.extract("txInfo","purpose").in(({ txInfo, purpose }) => {
 
     pmatch( rdmr )
     .onChangeOwner( _ => _.extract("newOwner","ownInputIdx").in( ({ newOwner, ownInputIdx }) =>
-        txInfo.extract("signatories","outputs","inputs").in( tx =>
+        txInfo.extract("outputs","inputs").in( tx =>
             
         plet(
-            plam( PCredential.type, bs )
-            ( creds => 
-                punBData.$(
-                    // both constructors have one field
-                    // and in both that field is a byteString
-                    // we don't care if it is PubKey or script
-                    // so we just take the hash without all the matching
-                    punConstrData.$( creds as any ).snd.head
-                )
-            )
-        ).in( getHashFromCredentialsRegardles =>
-        
-        plet(
-            getHashFromCredentialsRegardles.$(
-                datum.extract("owner").in( ({ owner }) => owner )
-            )
-        ).in( ownerHash => 
-
-        plet(
-            getHashFromCredentialsRegardles.$( newOwner )
-        ).in( newOwnerHash =>
+            plam( PTxInInfo.type, PCredential.type )
+            ( input => 
+                input.extract("resolved").in( ({ resolved }) =>
+                resolved.extract("address").in( ({ address }) => 
+                address.extract("credential").in( ({ credential }) => credential
+            ))))
+        ).in( getInputPaymentCreds =>
 
             // require both old owner and new owner to sign
-            tx.signatories.some( ownerHash.eqTerm )
+            // we want to support also scripts on top of public keys
+            // so we check for inputs and not `signatories`
+            // this requires to spend an utxo
+            tx.inputs.some( input => 
+                getInputPaymentCreds.$( input ).eq( currentOwner )
+            )
             .and(
-                tx.signatories.some( newOwnerHash.eqTerm )
+                tx.inputs.some( input => 
+                    getInputPaymentCreds.$( input ).eq( newOwner )
+                )
             )
             // make sure info is updated
             .and(
@@ -82,7 +71,7 @@ const yeildReserveOwnerOracle = pfn([
                         
                                 out.datum.eq(
                                     POutputDatum.InlineDatum({
-                                        datum: PYeildOwnerDatum.PYeildOwnerDatum({ owner: newOwner as any }) as any
+                                        datum: newOwner as any
                                     })
                                 )
                                 .and(
@@ -98,8 +87,7 @@ const yeildReserveOwnerOracle = pfn([
 
             )
 
-        )))
-        )
+        ))
     ))
 
     return pBool( false )

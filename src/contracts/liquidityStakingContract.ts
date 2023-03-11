@@ -1,4 +1,4 @@
-import { PAddress, PCurrencySymbol, PScriptContext, bool, int, pBool, pand, pdelay, pfn, pif, plet, pmatch, pstruct, punConstrData, punIData } from "@harmoniclabs/plu-ts";
+import { PAddress, PCurrencySymbol, PScriptContext, PTxInInfo, PTxOutRef, PValidatorHash, bool, int, lam, list, pBool, pInt, pand, pdelay, perror, pfn, pif, pisEmpty, plet, pmatch, precursiveList, pstruct, punConstrData, punIData } from "@harmoniclabs/plu-ts";
 
 export const PLqStakingDatum = pstruct({
     PLqStakingDatum: {
@@ -8,75 +8,79 @@ export const PLqStakingDatum = pstruct({
 });
 
 const PLqStakingRedeemer = pstruct({
-    Harvest: {
-        // MUST be first field
-        reserveInputIdx: int,
-        // 0 | 1
-        // if less than 1 (0) rewards are sent to `ownerAddr` specified in the datumrewards are kept in the contract
-        // else ( >=  1 ) rewards are kept in the contract and counted for next time
-        autoAccum: int
-    },
     Withdraw: {
-        // MUST be first field
-        reserveInputIdx: int
+        /**
+         * since we perform auto-harvest calculation at withdraw
+         * is possible that if the staked utxo has been here for long time
+         * calculation will exceed cpu limits
+         * 
+         * as a workaround we introduce the possibility to withdraw up to a certain point in time
+         * so that it can still be processed with two or more transactions
+         * in the case explained above
+        **/
+        upToTime: int,
+        /**
+         * @type {0 | 1}
+         * if `1` ( or greather ) rewards will stay in the contract (useful for the case of multi tx withdraw)
+         * if `0` ( or smaller  ) rewards are sent to owner and the marker NFT is burned
+         */
+        keepInContract: int
+    },
+    /**
+     * performs Withdraw of rewards to the contract and updates
+     */
+    AddLq: {
+
     }
 });
 
+/**
+ * all the inputs from 1 to n MUST be from the reserve
+ * and MUST be sorted by reward epoch
+ * 
+ * we need to validate tx inputs and outputs together
+ * so we write a custom loop
+**/
+const validateIO = precursive(
+    pfn([
+
+    ],  bool)
+    (() => 
+    )
+)
+
 const liquidityStakingContract = pfn([
+    PValidatorHash.type,
     PCurrencySymbol.type,
     PLqStakingDatum.type,
     PLqStakingRedeemer.type,
     PScriptContext.type
 ], bool)
-(( reserveProofCurrSym, datum, rdmr, ctx ) => {
+((  reserveValHash, 
+    validInputMarkerPolicy,
+    datum, rdmr, ctx
+) => {
 
-    ctx.extract("txInfo").in( ({ txInfo }) =>
+    ctx.extract("txInfo","purpose").in( ({ txInfo, purpose }) =>
     txInfo.extract("inputs","outputs").in( tx =>
 
-        plet(
-            punConstrData.$( rdmr as any )
-        ).in( deconstrRdmr => 
-            
-        tx.inputs.at(
-            punIData.$(
-                deconstrRdmr.snd.head
-            )
-        ).extract("resolved").in( ({ resolved: reserveInput }) =>
-        reserveInput.extract("value","datum").in( ({ value: reserveInputVal }) =>
-             
-            pand.$(
-                    reserveInputVal.some( entry => entry.fst.eq( reserveProofCurrSym ) )
-                )
-            )
-            .$(pdelay(
-                
-                pif( bool )
-                .$( deconstrRdmr.fst.eq(0) )
-                .then( // onHarvest
-    
-                    pif( bool )
-                    .$(
-                        punIData.$(
-                            deconstrRdmr.snd.tail.head
-                        ) // autoAccum
-                        .lt( 1 )
-                    )
-                    .then( // withdraw rewards to user
-    
-                    )
-                    .else( // auto re stake rewards
-    
-                    )
-    
-                )
-                .else( // onWithdraw
-    
-                )
+        // tx input at position 0 MUST be the one being validated by the contract
+        tx.inputs.head
+        .extract("resolved","utxoRef").in(({ resolved: ownInput, utxoRef: ownInputRef }) =>
 
-            )))
+            ownInputRef.eq(
+                pmatch( purpose )
+                .onSpending( _ => _.extract("utxoRef").in( ({ utxoRef }) => utxoRef ))
+                ._( _ => perror( PTxOutRef.type ) )
+            )
+            .and(
 
-        ))
-        
+                ownInput.extract("value").in( ({ value: ownValue }) =>
+                    ownValue.some
+                )
+            )
+        )
+
     ))
 
     return pBool( false )
