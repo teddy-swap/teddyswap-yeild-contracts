@@ -1,4 +1,5 @@
-import { PAddress, PCurrencySymbol, PScriptContext, PTxInInfo, PTxOutRef, PValidatorHash, bool, int, lam, list, pBool, pInt, pand, pdelay, perror, pfn, pif, pisEmpty, plet, pmatch, precursiveList, pstruct, punConstrData, punIData } from "@harmoniclabs/plu-ts";
+import { PAddress, PCredential, PCurrencySymbol, PScriptContext, PTxInInfo, PTxOut, PTxOutRef, PValidatorHash, UtilityTermOf, bool, bs, fn, int, lam, list, pBool, pInt, pand, pdelay, peqBs, perror, pfn, phoist, pif, pisEmpty, plam, plet, pmatch, precursive, precursiveList, pstruct, punBData, punConstrData, punIData, punsafeConvertType } from "@harmoniclabs/plu-ts";
+import { PReserveDatum } from "./tedyYeildReserve";
 
 export const PLqStakingDatum = pstruct({
     PLqStakingDatum: {
@@ -18,34 +19,82 @@ const PLqStakingRedeemer = pstruct({
          * so that it can still be processed with two or more transactions
          * in the case explained above
         **/
-        upToTime: int,
-        /**
-         * @type {0 | 1}
-         * if `1` ( or greather ) rewards will stay in the contract (useful for the case of multi tx withdraw)
-         * if `0` ( or smaller  ) rewards are sent to owner and the marker NFT is burned
-         */
-        keepInContract: int
+        upToTime: int
     },
     /**
-     * performs Withdraw of rewards to the contract and updates
+     * performs Withdraw oand returns or adds lw Tokens form/to the value
      */
-    AddLq: {
-
-    }
+    AddOrRemoveLq: {},
 });
 
+const getCredentialHash = phoist(
+    plam( PCredential.type, bs )
+    ( creds =>
+        punBData.$(
+            punConstrData.$( creds as any ).snd.head 
+        )
+    )
+)
+
+const getPaymentHash = phoist(
+    plam( PAddress.type, bs )
+    ( addr => addr.extract("credential")
+        .in( ({ credential }) => getCredentialHash.$( credential ) )
+    )
+);
+
 /**
- * all the inputs from 1 to n MUST be from the reserve
+ * all the inputs from `1` to `n` MUST be from the reserve
  * and MUST be sorted by reward epoch
  * 
  * we need to validate tx inputs and outputs together
- * so we write a custom loop
+ * because each input from the reserve 
+ * must go back to the reserve (unless drained)
+ * 
+ * so we write a custom loop instead of using something like `precursiveList`
 **/
-const validateIO = precursive(
-    pfn([
+const mkValidateIO = (
+    reserveValHashParamter: UtilityTermOf<typeof PValidatorHash>
+) =>
+plet(
+    peqBs.$( reserveValHashParamter )
+).in( isReserveValHash =>
+    precursive(
+        pfn([
+            fn([
+                list( PTxInInfo.type ),
+                list( PTxOut.type )
+            ],  bool),
+            list( PTxInInfo.type ),
+            list( PTxOut.type )
+        ],  bool)
+        (( self, inputs, outputs ) =>
+    
+            inputs .head.extract("resolved").in( ({ resolved: _input }) => 
+            _input      .extract("address","value","datum").in( input => 
+            outputs.head.extract("address","value","datum").in( output =>
 
-    ],  bool)
-    (() => 
+            pmatch( input.datum )
+            .onInlineDatum( _ => _.extract("datum").in( ({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) ))
+            ._( _ => perror( PReserveDatum.type ) )
+            .extract("time","totStakedSupply","lqPolicy").in( inputDaum =>
+
+            pmatch( output.datum )
+            .onInlineDatum( _ => _.extract("datum").in( ({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) ))
+            ._( _ => perror( PReserveDatum.type ) )
+            .extract("time","totStakedSupply","lqPolicy").in( outputDaum => {
+                
+                const inputFromReserve = isReserveValHash.$( getPaymentHash.$( input.address ) );
+                const outputToReserve = isReserveValHash.$( getPaymentHash.$( output.address ) ); 
+
+                const reserveDatumPreserved = input.datum.eq( output.datum );
+
+                return reserveDatumPreserved
+                .and(  inputFromReserve )
+                .and(  outputToReserve  );
+
+            })))))
+        )
     )
 )
 
@@ -57,12 +106,13 @@ const liquidityStakingContract = pfn([
     PScriptContext.type
 ], bool)
 ((  reserveValHash, 
-    validInputMarkerPolicy,
+    validOwnInputNFTMarkerPolicy,
     datum, rdmr, ctx
 ) => {
 
     ctx.extract("txInfo","purpose").in( ({ txInfo, purpose }) =>
     txInfo.extract("inputs","outputs").in( tx =>
+    datum.extract("ownerAddr","since").in( stakingInfos =>
 
         // tx input at position 0 MUST be the one being validated by the contract
         tx.inputs.head
@@ -75,13 +125,17 @@ const liquidityStakingContract = pfn([
             )
             .and(
 
-                ownInput.extract("value").in( ({ value: ownValue }) =>
-                    ownValue.some
+                pmatch( rdmr )
+                .onWithdraw( _ => _.extract("upToTime").in( ({ upToTime }) => 
+                ))
+                .onAddOrRemoveLq( _ => 
                 )
+                
             )
+
         )
 
-    ))
+    )))
 
     return pBool( false )
 })

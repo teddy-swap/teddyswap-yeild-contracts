@@ -1,5 +1,6 @@
-import { PAddress, PCurrencySymbol, POutputDatum, PScriptContext, PValidatorHash, bool, int, pBool, pDataI, perror, pfn, pisEmpty, plet, pmatch, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
+import { PAddress, PCurrencySymbol, POutputDatum, PScriptContext, PValidatorHash, bool, int, pBool, pDataI, pIntToData, perror, pfn, pisEmpty, plet, pmatch, pserialiseData, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
 import { PLqStakingDatum } from "./liquidityStakingContract";
+import { pgetUpperCurrentTime } from "../utils/pgetCurrentTime";
 
 const PStakeRequestRedeemer = pstruct({
     Approve: {
@@ -17,17 +18,20 @@ const stakeRequestContract = pfn([
 ],  bool)
 (( 
     stakeContractValHash,
-    markerNFTPolicy,
+    validStakeNFTProofPolicy,
     ownerAddress, rdmr, ctx
 ) => {
 
     ctx.extract("txInfo").in( ({ txInfo }) =>
     
         pmatch( rdmr )
-        .onCancel( _ => 
+        .onCancel( _ => // tx signed by who created the stake request
             txInfo.extract("signatories").in( ({ signatories }) =>
             ownerAddress.extract("credential").in( ({ credential }) => 
                 plet(
+                    // extract signer withut matching constructor
+                    // if it is a validator hash will fail anyway
+                    // since validator hashes are not included in the `signatories` field
                     punBData.$(
                         punConstrData.$(
                             credential as any
@@ -40,63 +44,96 @@ const stakeRequestContract = pfn([
         ))
         .onApprove( _ =>
             _.extract("outToStakeContractIdx").in( ({ outToStakeContractIdx }) => 
-            txInfo.extract("outputs","interval","mint").in( tx =>
+            txInfo.extract("inputs","outputs","interval","mint").in( tx =>
 
-                tx.outputs.at( outToStakeContractIdx )
-                .extract("address","datum","value").in( outGoingToStake => 
+            tx.outputs.at( outToStakeContractIdx )
+            .extract("address","datum","value").in( outGoingToStake => {
 
-                    outGoingToStake.datum.eq(
-                        POutputDatum.InlineDatum({
-                            datum: PLqStakingDatum.PLqStakingDatum({
-                                ownerAddr: ownerAddress as any,
-                                since: pDataI(0) // TODO epoch calculation
-                            }) as any
-                        })
-                    )
-                    .and(
-                        outGoingToStake.address
-                        .extract("credential").in( ({ credential: outPaymentCreds }) =>
-                        
-                            pmatch( outPaymentCreds )
-                            .onPScriptCredential( _ => _.extract("valHash").in(({ valHash: outValHash }) => 
-                                outValHash.eq( stakeContractValHash )
-                            ))
-                            ._( _ => perror( bool ) )
+                const correctOutDatum = outGoingToStake.datum.eq(
+                    POutputDatum.InlineDatum({
+                        datum: PLqStakingDatum.PLqStakingDatum({
+                            ownerAddr: ownerAddress as any,
+                            since: pIntToData.$( pgetUpperCurrentTime.$( tx.interval ) )
+                        }) as any
+                    })
+                ) 
 
-                        )
-                    )
-                    // output going to stake contract is marked with NFT
-                    .and(
-
-                        plet(
-                            tx.mint.tail
-                        ).in( markerMintEntry =>
-
-                            // minting contains only 2 policies
-                            pisEmpty.$( markerMintEntry.tail )
-                            .and(
-                                // firs policy is ADA
-                                // (every on chain value has ADA)
-                                tx.mint.head.fst.eq("")
-                            )
-                            .and(
-                                // the minted assets are from a known policy
-                                // (minting validation forwarded to policy)
-                                markerMintEntry.head.fst.eq( markerNFTPolicy )
-                            )
-                            .and(
-                                // the minted token (assumed to be 1) goes to the stake contract utxo
-                                outGoingToStake.value.some( entry => entry.fst.eq( markerNFTPolicy ) )
-                            )
-
-                        )
-
-
-                    )
+                const outGoingToStakeValidator = outGoingToStake.address
+                .extract("credential").in( ({ credential: outPaymentCreds }) =>
+                
+                    pmatch( outPaymentCreds )
+                    .onPScriptCredential( _ => _.extract("valHash").in(({ valHash: outValHash }) => 
+                        outValHash.eq( stakeContractValHash )
+                    ))
+                    ._( _ => perror( bool ) )
 
                 )
 
-            ))
+                // output going to stake contract is marked with NFT
+                const outContainsMintedNFT = plet( tx.mint.tail ).in( noADAValue =>
+
+                    // the minted value (ADA excluded) only contains 1 policy
+                    pisEmpty.$( noADAValue.tail )
+                    .and(
+                        // first policy is ADA
+                        // (every on-chain value has ADA)
+                        tx.mint.head.fst.eq("")
+                    )
+                    .and(
+
+                        plet(
+                            noADAValue.head
+                        ).in( validStakeNFTProofEntry => 
+                            // the minted assets are from a known policy
+                            validStakeNFTProofEntry.fst.eq( validStakeNFTProofPolicy )
+                            .and(
+
+                                // we perform here the minting validation
+                                // because we want to be 100% sure that the minted token is unique
+                                plet(
+                                    validStakeNFTProofEntry.snd
+                                ).in( validStakeNFTProofAssets =>
+
+                                    // single asset minted
+                                    pisEmpty.$( validStakeNFTProofAssets.tail ) 
+                                    .and(
+                                        plet( validStakeNFTProofAssets.head )
+                                        .in( validStakeNFTProofAsset =>
+
+                                            validStakeNFTProofAsset.fst.eq(
+                                                
+                                                // asset name is the CBOR-serialized format
+                                                // of the first input of this transaction.
+                                                tx.inputs.at(0)
+                                                .extract("utxoRef")
+                                                .in( ({ utxoRef }) => 
+                                                    pserialiseData.$( utxoRef as any )
+                                                )
+
+                                            )
+                                            .and(
+                                                // quantity is 1
+                                                validStakeNFTProofAsset.snd.eq( 1 )
+                                            )
+                                        )
+                                    )
+
+                                )
+                            )
+                        )
+
+                    )
+                    .and(
+                        outGoingToStake.value.some( entry => entry.fst.eq( validStakeNFTProofPolicy ) )
+                    )
+
+                );
+
+                return correctOutDatum
+                .and(  outGoingToStakeValidator )
+                .and(  outContainsMintedNFT     );
+
+            })))
         )
     
     )

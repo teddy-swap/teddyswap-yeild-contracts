@@ -13,7 +13,7 @@ const PYeildOwnerRedeemer = pstruct({
  * 
  * however these might be required and checked by other contracts
  */
-const yeildReserveOwnerOracle = pfn([
+export const yeildReserveOwnerOracle = pfn([
     // owner
     // likely a multi-sig at the beginning;
     // upgraded to community owned smart contract in the future
@@ -23,72 +23,70 @@ const yeildReserveOwnerOracle = pfn([
 ],  bool)
 (( currentOwner, rdmr, _ctx ) => 
 
-
     _ctx.extract("txInfo","purpose").in(({ txInfo, purpose }) => {
 
-    pmatch( rdmr )
-    .onChangeOwner( _ => _.extract("newOwner","ownInputIdx").in( ({ newOwner, ownInputIdx }) =>
-        txInfo.extract("outputs","inputs").in( tx =>
-            
-        plet(
-            plam( PTxInInfo.type, PCredential.type )
-            ( input => 
-                input.extract("resolved").in( ({ resolved }) =>
-                resolved.extract("address").in( ({ address }) => 
-                address.extract("credential").in( ({ credential }) => credential
-            ))))
-        ).in( getInputPaymentCreds =>
-
-            // require both old owner and new owner to sign
-            // we want to support also scripts on top of public keys
-            // so we check for inputs and not `signatories`
-            // this requires to spend an utxo
-            tx.inputs.some( input => 
-                getInputPaymentCreds.$( input ).eq( currentOwner )
-            )
-            .and(
-                tx.inputs.some( input => 
-                    getInputPaymentCreds.$( input ).eq( newOwner )
-                )
-            )
-            // make sure info is updated
-            .and(
+    return pmatch( rdmr )
+        .onChangeOwner( _ => _.extract("newOwner","ownInputIdx").in( ({ newOwner, ownInputIdx }) =>
+            txInfo.extract("outputs","inputs").in( tx =>
                 
-                plet(
-                    tx.inputs.at( ownInputIdx )
-                ).in( _ownInput => _ownInput.extract("resolved","utxoRef").in( ownInput =>
+            plet(
+                plam( PTxInInfo.type, PCredential.type )
+                ( input => 
+                    input.extract("resolved").in( ({ resolved }) =>
+                    resolved.extract("address").in( ({ address }) => 
+                    address.extract("credential").in( ({ credential }) => credential
+                ))))
+            ).in( getInputPaymentCreds =>
 
-                    ownInput.utxoRef.eq(
-                        pmatch( purpose )
-                        .onSpending( _ => _.extract("utxoRef").in( ({ utxoRef }) => utxoRef ))
-                        ._( _ => perror( PTxOutRef.type ) )
+                // require both old owner and new owner to sign
+                // we want to support also scripts on top of public keys
+                // so we check for inputs and not `signatories`
+                // this requires to spend an utxo
+                tx.inputs.some( input => 
+                    getInputPaymentCreds.$( input ).eq( currentOwner )
+                )
+                .and(
+                    tx.inputs.some( input => 
+                        getInputPaymentCreds.$( input ).eq( newOwner )
                     )
-                    .and(
+                )
+                // make sure info is updated
+                .and(
+                    
+                    plet(
+                        tx.inputs.at( ownInputIdx )
+                    ).in( _ownInput => _ownInput.extract("resolved","utxoRef").in( ownInput =>
 
-                        ownInput.resolved.extract("address").in(({ address: ownAddr }) => 
-    
-                            tx.outputs.some( _out => _out.extract("address","datum").in( out =>
-                        
-                                out.datum.eq(
-                                    POutputDatum.InlineDatum({
-                                        datum: newOwner as any
-                                    })
-                                )
-                                .and(
-                                    out.address.eq( ownAddr )
-                                )
-        
-                            ))
-
+                        ownInput.utxoRef.eq(
+                            pmatch( purpose )
+                            .onSpending( _ => _.extract("utxoRef").in( ({ utxoRef }) => utxoRef ))
+                            ._( _ => perror( PTxOutRef.type ) )
                         )
-                        
-                    )
-                ))
+                        .and(
 
-            )
+                            ownInput.resolved.extract("address").in(({ address: ownAddr }) => 
+        
+                                tx.outputs.some( _out => _out.extract("address","datum").in( out =>
+                            
+                                    out.datum.eq(
+                                        POutputDatum.InlineDatum({
+                                            datum: newOwner as any
+                                        })
+                                    )
+                                    .and(
+                                        out.address.eq( ownAddr )
+                                    )
+            
+                                ))
 
+                            )
+                            
+                        )
+                    ))
+
+                )
+
+            ))
         ))
-    ))
-
-    return pBool( false )
-}))
+    })
+)
