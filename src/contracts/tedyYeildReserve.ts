@@ -6,13 +6,35 @@ export const PReserveDatum = pstruct({
         time: int,
         // snapshot of total staked supply for that time
         totStakedSupply: int,
-        // lq token policy to which rewards are allocated to
-        lqPolicy: PValidatorHash.type
+        /**
+         * since multiple inputs can be included from this script
+         * 
+         * any loop (or recursive call) in this contract will be executed for each utxo
+         * 
+         * we need to loop over all inputs and outputs to calculate rewards eraned over time
+         * 
+         * so we forward the spending of all these outputs to a pre-chosen validator
+         * (ideally the stake contract itself)
+         * 
+         * we still check that the transaction contains only a single input from the validator
+         * (to prevent double satisfaciton)
+         * 
+         * and we also check that all other inputs are from this contract ( the reserve )
+         * 
+         * we can't really check the outputs as some migth be drained (aka. all rewards on that utxo are distributed)
+         * so also outputs are forwarded to the validator specified
+         * 
+         * but **without** any additional logic on the reweard calculation that is expected to happen
+         * in the forwarded validator
+        **/
+        forwardValidator: PValidatorHash.type
     }
 });
 
 const PReserveRedeemer = pstruct({
-    Harvest: {},
+    Harvest: {
+        ownInputIdx: int
+    },
     BackToOwner: {
         ownerOracleRefInIdx: int
     }
@@ -34,19 +56,11 @@ const tedyYeildReserve = pfn([
     datum, rdmr, ctx
 ) => {
 
-    ctx.extract("txInfo","purpose").in(({ txInfo, purpose }) =>
-
-    plet(
-        pmatch( purpose )
-        .onSpending( _ => _.extract("utxoRef")
-            .in( ({ utxoRef: ownUtxoRef }) => ownUtxoRef )
-        )
-        ._( _ => perror( PTxOutRef.type ))
-    ).in( ownUtxoRef => 
+    return ctx.extract("txInfo","purpose").in(({ txInfo, purpose }) =>
 
         pmatch( rdmr )
         /**
-         * UTxO going back to main protoco treasurery
+         * reserve UTxO going back to main protocol treasurery
          */
         .onBackToOwner( _ => _.extract("ownerOracleRefInIdx").in(({ ownerOracleRefInIdx }) => 
 
@@ -64,16 +78,7 @@ const tedyYeildReserve = pfn([
                         credential
                     ))
                 )
-            ).in( getOutCreds => 
-            
-            plet(
-                plam( PCredential.type, bs )
-                ( creds => 
-                    punBData.$(
-                        punConstrData.$( creds as any ).snd.head
-                    )
-                )
-            ).in( getCredentialHashRegardless => {
+            ).in( getOutCreds => {
 
                 const isValidOracleRefIn = oracleRefIn.value.some( entry => entry.fst.eq( oracleCurrSymId ) ); 
                 
@@ -90,8 +95,8 @@ const tedyYeildReserve = pfn([
 
                     );
 
-                const lqProviderSigned = 
-                    // requires one input from the LP token owner
+                const reserveOwnerSignedAndAllOutsToOwner = 
+                    // requires one input from the reserve owner
                     // (aka. the owner must be aware of the transfer)
                     plet(
                         /*
@@ -106,40 +111,97 @@ const tedyYeildReserve = pfn([
                         .snd.head // first field (either datum hash or the actual datum)
                     ).in( thisContractOwnerCredentials =>
 
-                        // check teh inputs only
+                        // check the inputs only
                         // this is done for two reasons:
                         //
-                        // 1) if it is an actual user he would have to include one of
+                        // 1) if it is an actual user (a pkh), they would have to include one of
                         //    their utxo anyway because of the tx fees
                         // 2) to allow smart contracts to provide and stake liquidity
                         tx.inputs.some( _in => 
                         _in.extract("resolved").in( ({ resolved }) => 
                             getOutCreds.$( resolved ).eq( thisContractOwnerCredentials as any )
                         ))
+                        .and(
+                            // all outs to owner
+                            tx.outputs.every( out =>
+                            getOutCreds.$(
+                                out
+                            ).eq( thisContractOwnerCredentials as any )
+                        )
+                        )
 
-                    )
-
-                    
+                    );
 
                 return isValidOracleRefIn
                 .and(  oracleRefInComesFromContract )
-                .and(  lqProviderSigned )
-                .and(
-                    // requires all outputs back to owner NO
-                    fix_this
-
-                    tx.outputs.every( out =>
-                        getOutCreds.$( out ).eq( oracleRefIn.datum as any )
-                    )
-                )
+                .and(  reserveOwnerSignedAndAllOutsToOwner );
                 
-            })))))
+            }))))
         ))
-        .onHarvest( _ =>
+        .onHarvest( _ => 
+            _.extract("ownInputIdx").in( ({ ownInputIdx }) =>
+
+            txInfo.extract("inputs").in( tx =>
+            
+            tx.inputs.at( ownInputIdx )
+            .extract("utxoRef","resolved")
+            .in( ({ utxoRef: ownInputUtxoRef, resolved: ownInput }) =>
+
+            plet(
+                ownInput.extract("address").in(({ address }) =>
+                address.extract("credential").in( ({ credential }) =>
+                    punBData.$(
+                        punConstrData.$( credential as any ).snd.head 
+                    )
+                ))
+            ).in( ownHash =>
+        
+            plet(
+                pmatch( purpose )
+                .onSpending( _ => _.extract("utxoRef")
+                    .in( ({ utxoRef: ownUtxoRef }) => ownUtxoRef )
+                )
+                ._( _ => perror( PTxOutRef.type ))
+            ).in( ownUtxoRef => {
+
+                const ownInputIsValid = ownInputUtxoRef.eq( ownUtxoRef );
+
+                const fstInputIsForwarded = 
+                tx.inputs.head.extract("resolved").in( ({ resolved }) => 
+                resolved.extract("address").in(   ({ address })=> 
+                address.extract("credential").in( ({ credential }) =>
+
+                    pmatch( credential )
+                    .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
+                        datum.extract("forwardValidator").in( ({ forwardValidator }) => 
+                            valHash.eq( forwardValidator )
+                        )
+                    ))
+                    ._( _ => perror( bool ) )
+
+                )));
+
+                const allOtherInputsAreOwn =
+                tx.inputs.tail.every( _in =>
+                    _in.extract("resolved").in( ({ resolved }) => 
+                    resolved.extract("address").in(({ address }) =>
+                    address.extract("credential").in( ({ credential }) =>
+
+                        pmatch( credential )
+                        .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
+                            valHash.eq( ownHash ) 
+                        ))
+                        .onPPubKeyCredential( _ => perror( bool ) )
+                    
+                    )))
+                );
+                
+                return ownInputIsValid
+                .and(  fstInputIsForwarded )
+                .and(  allOtherInputsAreOwn );
+
+            })))))
         )
 
-    ))
-
-
-    return pBool( false )
+    )
 })

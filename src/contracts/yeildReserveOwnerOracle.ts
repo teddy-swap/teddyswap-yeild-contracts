@@ -12,6 +12,8 @@ const PYeildOwnerRedeemer = pstruct({
  * we do not require additional restrictions ( such as identifying nfts here )
  * 
  * however these might be required and checked by other contracts
+ * 
+ * (as in the case of the reserve)
  */
 export const yeildReserveOwnerOracle = pfn([
     // owner

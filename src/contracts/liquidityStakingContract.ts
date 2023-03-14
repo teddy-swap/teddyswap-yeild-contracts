@@ -1,5 +1,8 @@
-import { PAddress, PCredential, PCurrencySymbol, PScriptContext, PTxInInfo, PTxOut, PTxOutRef, PValidatorHash, UtilityTermOf, bool, bs, fn, int, lam, list, pBool, pInt, pand, pdelay, peqBs, perror, pfn, phoist, pif, pisEmpty, plam, plet, pmatch, precursive, precursiveList, pstruct, punBData, punConstrData, punIData, punsafeConvertType } from "@harmoniclabs/plu-ts";
+import { PAddress, PBool, PByteString, PCredential, PCurrencySymbol, POutputDatum, PScriptContext, PTxInInfo, PTxOut, PTxOutRef, PValidatorHash, TermFn, UtilityTermOf, bool, bs, fn, int, lam, list, pBool, pInt, pIntToData, pand, pdelay, peqBs, perror, pfn, phoist, pif, pisEmpty, plam, plet, pmatch, precursive, precursiveList, pstruct, punBData, punConstrData, punIData, punsafeConvertType } from "@harmoniclabs/plu-ts";
 import { PReserveDatum } from "./tedyYeildReserve";
+import { pgetLowerCurrentTime } from "../utils/pgetCurrentTime";
+import { getPaymentHash } from "../utils/getPaymentHash";
+import { finished } from "stream";
 
 export const PLqStakingDatum = pstruct({
     PLqStakingDatum: {
@@ -9,7 +12,10 @@ export const PLqStakingDatum = pstruct({
 });
 
 const PLqStakingRedeemer = pstruct({
-    Withdraw: {
+    /**
+     * also allows for lq deposits / withdraws
+    **/
+    Harvest: {
         /**
          * since we perform auto-harvest calculation at withdraw
          * is possible that if the staked utxo has been here for long time
@@ -20,28 +26,13 @@ const PLqStakingRedeemer = pstruct({
          * in the case explained above
         **/
         upToTime: int
-    },
-    /**
-     * performs Withdraw oand returns or adds lw Tokens form/to the value
-     */
-    AddOrRemoveLq: {},
+    }
 });
 
-const getCredentialHash = phoist(
-    plam( PCredential.type, bs )
-    ( creds =>
-        punBData.$(
-            punConstrData.$( creds as any ).snd.head 
-        )
-    )
-)
-
-const getPaymentHash = phoist(
-    plam( PAddress.type, bs )
-    ( addr => addr.extract("credential")
-        .in( ({ credential }) => getCredentialHash.$( credential ) )
-    )
-);
+const validateIOT = fn([
+    list( PTxInInfo.type ),
+    list( PTxOut.type )
+],  bool);
 
 /**
  * all the inputs from `1` to `n` MUST be from the reserve
@@ -54,88 +45,153 @@ const getPaymentHash = phoist(
  * so we write a custom loop instead of using something like `precursiveList`
 **/
 const mkValidateIO = (
-    reserveValHashParamter: UtilityTermOf<typeof PValidatorHash>
+    isReserveValHash: TermFn<[ PByteString ], PBool>
 ) =>
-plet(
-    peqBs.$( reserveValHashParamter )
-).in( isReserveValHash =>
-    precursive(
-        pfn([
-            fn([
+    plam( int , validateIOT )
+    ( upToTime => 
+        precursive(
+            pfn([
+                validateIOT,
                 list( PTxInInfo.type ),
                 list( PTxOut.type )
-            ],  bool),
-            list( PTxInInfo.type ),
-            list( PTxOut.type )
-        ],  bool)
-        (( self, inputs, outputs ) =>
+            ],  bool)
+            (( self, inputs, outputs ) =>
+        
+                inputs .head.extract("resolved").in( ({ resolved: _input }) => 
+                _input      .extract("address","value","datum").in( input => 
+                outputs.head.extract("address","value","datum").in( output =>
     
-            inputs .head.extract("resolved").in( ({ resolved: _input }) => 
-            _input      .extract("address","value","datum").in( input => 
-            outputs.head.extract("address","value","datum").in( output =>
+                pmatch( input.datum )
+                .onInlineDatum( _ => _.extract("datum").in( ({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) ))
+                ._( _ => perror( PReserveDatum.type ) )
+                .extract("time","totStakedSupply","lqPolicy").in( inputDaum =>
+    
+                pmatch( output.datum )
+                .onInlineDatum( _ => _.extract("datum").in( ({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) ))
+                ._( _ => perror( PReserveDatum.type ) )
+                .extract("time","totStakedSupply","lqPolicy").in( outputDaum => {
+                    
+                    const inputFromReserve = isReserveValHash.$( getPaymentHash.$( input.address ) );
+                    const outputToReserve = isReserveValHash.$( getPaymentHash.$( output.address ) ); 
+    
+                    const reserveDatumPreserved = input.datum.eq( output.datum );
+    
+                    not finished
 
-            pmatch( input.datum )
-            .onInlineDatum( _ => _.extract("datum").in( ({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) ))
-            ._( _ => perror( PReserveDatum.type ) )
-            .extract("time","totStakedSupply","lqPolicy").in( inputDaum =>
-
-            pmatch( output.datum )
-            .onInlineDatum( _ => _.extract("datum").in( ({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) ))
-            ._( _ => perror( PReserveDatum.type ) )
-            .extract("time","totStakedSupply","lqPolicy").in( outputDaum => {
-                
-                const inputFromReserve = isReserveValHash.$( getPaymentHash.$( input.address ) );
-                const outputToReserve = isReserveValHash.$( getPaymentHash.$( output.address ) ); 
-
-                const reserveDatumPreserved = input.datum.eq( output.datum );
-
-                return reserveDatumPreserved
-                .and(  inputFromReserve )
-                .and(  outputToReserve  );
-
-            })))))
+                    return reserveDatumPreserved
+                    .and(  inputFromReserve )
+                    .and(  outputToReserve  );
+    
+                })))))
+            )
         )
     )
-)
 
-const liquidityStakingContract = pfn([
-    PValidatorHash.type,
+const liquidityStakingContract = (
+    reserveValHash: UtilityTermOf<typeof PValidatorHash>
+) => pfn([
     PCurrencySymbol.type,
     PLqStakingDatum.type,
     PLqStakingRedeemer.type,
     PScriptContext.type
 ], bool)
-((  reserveValHash, 
+(( 
     validOwnInputNFTMarkerPolicy,
     datum, rdmr, ctx
 ) => {
 
     ctx.extract("txInfo","purpose").in( ({ txInfo, purpose }) =>
-    txInfo.extract("inputs","outputs").in( tx =>
+    txInfo.extract("inputs","outputs","interval").in( tx =>
     datum.extract("ownerAddr","since").in( stakingInfos =>
+
+    plet(
+        peqBs.$( reserveValHash )
+    ).in( isReserveValHash =>
 
         // tx input at position 0 MUST be the one being validated by the contract
         tx.inputs.head
-        .extract("resolved","utxoRef").in(({ resolved: ownInput, utxoRef: ownInputRef }) =>
+        .extract("resolved","utxoRef").in(({ resolved: _ownInput, utxoRef: ownInputRef }) =>
+        _ownInput.extract("address","value").in( ownInput =>
 
+            // input ar position 0 is actually the one being vaidated
             ownInputRef.eq(
                 pmatch( purpose )
                 .onSpending( _ => _.extract("utxoRef").in( ({ utxoRef }) => utxoRef ))
                 ._( _ => perror( PTxOutRef.type ) )
             )
+            // input is certified (aka, the datum is trusted)
+            .and(
+                ownInput.value.some( entry => entry.fst.eq( validOwnInputNFTMarkerPolicy ) )
+            )
             .and(
 
-                pmatch( rdmr )
-                .onWithdraw( _ => _.extract("upToTime").in( ({ upToTime }) => 
-                ))
-                .onAddOrRemoveLq( _ => 
-                )
+                rdmr.extract("upToTime").in( ({ upToTime }) =>
+
+                plet(
+                    pgetLowerCurrentTime.$( tx.interval )
+                ).in( currTime => 
                 
+                plet(
+                    pif( int ).$( currTime.ltEq( upToTime ) )
+                    .then( currTime )
+                    .else( upToTime )
+                ).in( finalTime => {
+
+                    tx.outputs.head.extract("address", "value", "datum").in( fstOut =>
+
+                    plet(
+                        mkValidateIO( isReserveValHash )
+                        // in both case these are the first two inputs
+                        // so we partially apply
+                        .$( stakingInfos.since )
+                        .$( tx.inputs.tail )
+                    )
+                    .in( validateReserveOuts => 
+
+                        // if fistOut going back to this contract
+                        pif( bool ).$( fstOut.address.eq( ownInput.address ) )
+                        .then(
+                            tx.outputs.tail.head.extract("address", "value", "datum").in( sndOut =>
+                                
+                                // nft going back here
+                                fstOut.value.some( entry =>  entry.fst.eq( validOwnInputNFTMarkerPolicy ) )
+                                .and(
+                                    fstOut.datum.eq(
+                                        POutputDatum.InlineDatum({
+                                            datum: PLqStakingDatum.PLqStakingDatum({
+                                                ownerAddr: stakingInfos.ownerAddr as any, // same owner address
+                                                since: pIntToData.$( finalTime ) // updated with this withraw timestamp
+                                            }) as any
+                                        })
+                                    )
+                                )
+                                .and(
+                                    validateReserveOuts
+                                    .$( tx.outputs.tail.tail )
+                                )
+                            )
+                        )
+                        .else(
+
+                            // if not back here then the first output is the one going to the user
+                            fstOut.address.eq( stakingInfos.ownerAddr )
+                            // since nothing is going back here we must be sure we are burning the NFT
+                            .and(
+                                validateReserveOuts
+                                .$( tx.outputs.tail )
+                            )
+                        )
+                    
+                    ))
+
+                    return pBool( false );
+                })))
+
             )
 
-        )
+        ))
 
-    )))
+    ))))
 
     return pBool( false )
 })
