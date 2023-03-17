@@ -1,4 +1,4 @@
-import { PCredential, PCurrencySymbol, PScriptContext, PTxOut, PTxOutRef, PValidatorHash, PaymentCredentials, TxOut, addUtilityForType, bool, bs, data, int, pBool, perror, pfn, plam, plet, pmatch, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
+import { PCredential, PCurrencySymbol, PScriptContext, PTokenName, PTxOut, PTxOutRef, PValidatorHash, PaymentCredentials, TxOut, addUtilityForType, bool, bs, data, int, pBool, perror, pfn, plam, plet, pmatch, pstruct, punBData, punConstrData, punsafeConvertType } from "@harmoniclabs/plu-ts";
 
 export const PReserveDatum = pstruct({
     PReserveDatum: {
@@ -27,7 +27,9 @@ export const PReserveDatum = pstruct({
          * but **without** any additional logic on the reweard calculation that is expected to happen
          * in the forwarded validator
         **/
-        forwardValidator: PValidatorHash.type
+        forwardValidator: PValidatorHash.type,
+        lpTokenCurrSym: PCurrencySymbol.type,
+        lpTokenName: PTokenName.type
     }
 });
 
@@ -78,7 +80,22 @@ const tedyYeildReserve = pfn([
                         credential
                     ))
                 )
-            ).in( getOutCreds => {
+            ).in( getOutCreds => 
+                
+            plet(
+                /*
+                only fails with the `NoDatum` `POutputDatum` constructor is used
+                instead both `DatumHash` and `InlineDatum` do have a field
+                
+                however, even if it is a `DatumHash` is not a problem,
+                since we are expecting some `PCredentials`, which are a structured data 
+                and not a `DataB` as the field of `DatumHash`
+                */
+                PCredential.fromData(
+                    punConstrData.$( oracleRefIn.datum as any )
+                    .snd.head, // first field (either datum hash or the actual datum)
+                )
+            ).in( thisContractOwnerCredentials => {
 
                 const isValidOracleRefIn = oracleRefIn.value.some( entry => entry.fst.eq( oracleCurrSymId ) ); 
                 
@@ -95,48 +112,33 @@ const tedyYeildReserve = pfn([
 
                     );
 
-                const reserveOwnerSignedAndAllOutsToOwner = 
+                const reserveOwnerSigned =
+                    // check the inputs and not the signatories
+                    // 
+                    // this is done for two reasons:
+                    //
+                    // 1) if it is an actual user (a pkh), they would have to include one of
+                    //    their utxo anyway because of the tx fees
+                    // 2) to allow smart contracts to provide and stake liquidity
+                    tx.inputs.some( _in => 
+                        _in.extract("resolved").in( ({ resolved }) => 
+                            getOutCreds.$( resolved )
+                            .eq( thisContractOwnerCredentials )
+                        )
+                    );
+                    
+
+                const allOutsToOwner = 
                     // requires one input from the reserve owner
                     // (aka. the owner must be aware of the transfer)
-                    plet(
-                        /*
-                        only fails with the `NoDatum` `POutputDatum` constructor is used
-                        instead both `DatumHash` and `InlineDatum` do have a field
-                        
-                        however, even if it is a `DatumHash` is not a problem,
-                        since we are expecting some `PCredentials`, which are a structured data 
-                        and not a `DataB` as the field of `DatumHash`
-                        */
-                        punConstrData.$( oracleRefIn.datum as any )
-                        .snd.head // first field (either datum hash or the actual datum)
-                    ).in( thisContractOwnerCredentials =>
-
-                        // check the inputs only
-                        // this is done for two reasons:
-                        //
-                        // 1) if it is an actual user (a pkh), they would have to include one of
-                        //    their utxo anyway because of the tx fees
-                        // 2) to allow smart contracts to provide and stake liquidity
-                        tx.inputs.some( _in => 
-                        _in.extract("resolved").in( ({ resolved }) => 
-                            getOutCreds.$( resolved ).eq( thisContractOwnerCredentials as any )
-                        ))
-                        .and(
-                            // all outs to owner
-                            tx.outputs.every( out =>
-                            getOutCreds.$(
-                                out
-                            ).eq( thisContractOwnerCredentials as any )
-                        )
-                        )
-
-                    );
+                    tx.outputs.every( out => getOutCreds.$( out ).eq( thisContractOwnerCredentials ) );
 
                 return isValidOracleRefIn
                 .and(  oracleRefInComesFromContract )
-                .and(  reserveOwnerSignedAndAllOutsToOwner );
+                .and(  reserveOwnerSigned )
+                .and(  allOutsToOwner );
                 
-            }))))
+            })))))
         ))
         .onHarvest( _ => 
             _.extract("ownInputIdx").in( ({ ownInputIdx }) =>

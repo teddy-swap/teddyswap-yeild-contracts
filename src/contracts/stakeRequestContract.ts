@@ -56,7 +56,7 @@ const stakeRequestContract = pfn([
                             since: pIntToData.$( pgetUpperCurrentTime.$( tx.interval ) )
                         }) as any
                     })
-                ) 
+                );
 
                 const outGoingToStakeValidator = outGoingToStake.address
                 .extract("credential").in( ({ credential: outPaymentCreds }) =>
