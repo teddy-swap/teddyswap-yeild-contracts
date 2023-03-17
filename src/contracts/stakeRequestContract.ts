@@ -1,6 +1,14 @@
-import { PAddress, PCurrencySymbol, POutputDatum, PScriptContext, PValidatorHash, bool, int, pBool, pDataI, pIntToData, perror, pfn, pisEmpty, plet, pmatch, pserialiseData, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
+import { PAddress, PCurrencySymbol, POutputDatum, PScriptContext, PTokenName, PValidatorHash, bool, int, pBSToData, pBool, pDataI, pIntToData, perror, pfn, pisEmpty, plet, pmatch, pserialiseData, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
 import { PLqStakingDatum } from "./liquidityStakingContract";
 import { pgetUpperCurrentTime } from "../utils/pgetCurrentTime";
+
+const PStakeRequestDatum = pstruct({
+    PStakeRequestDatum: {
+        address: PAddress.type,
+        lpSym: PCurrencySymbol.type,
+        lpName: PTokenName.type
+    }
+})
 
 const PStakeRequestRedeemer = pstruct({
     Approve: {
@@ -12,17 +20,19 @@ const PStakeRequestRedeemer = pstruct({
 const stakeRequestContract = pfn([
     PValidatorHash.type,
     PCurrencySymbol.type,
-    PAddress.type,
+    PStakeRequestDatum.type,
     PStakeRequestRedeemer.type,
     PScriptContext.type
 ],  bool)
 (( 
     stakeContractValHash,
     validStakeNFTProofPolicy,
-    ownerAddress, rdmr, ctx
+    datum, rdmr, ctx
 ) => {
 
-    ctx.extract("txInfo").in( ({ txInfo }) =>
+    return ctx.extract("txInfo").in( ({ txInfo }) =>
+    datum.extract("address","lpName","lpSym")
+    .in(({ address: ownerAddress, lpName, lpSym }) =>
     
         pmatch( rdmr )
         .onCancel( _ => // tx signed by who created the stake request
@@ -53,7 +63,9 @@ const stakeRequestContract = pfn([
                     POutputDatum.InlineDatum({
                         datum: PLqStakingDatum.PLqStakingDatum({
                             ownerAddr: ownerAddress as any,
-                            since: pIntToData.$( pgetUpperCurrentTime.$( tx.interval ) )
+                            since: pIntToData.$( pgetUpperCurrentTime.$( tx.interval ) ),
+                            lpName: pBSToData.$( lpName ) as any,
+                            lpSym:  pBSToData.$( lpSym  ) as any,
                         }) as any
                     })
                 );
@@ -136,7 +148,5 @@ const stakeRequestContract = pfn([
             })))
         )
     
-    )
-
-    return pBool( false )
+    ))
 });
