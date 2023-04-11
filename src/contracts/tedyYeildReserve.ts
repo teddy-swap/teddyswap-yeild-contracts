@@ -1,4 +1,7 @@
-import { PCredential, PCurrencySymbol, PScriptContext, PTokenName, PTxOut, PTxOutRef, PValidatorHash, PaymentCredentials, TxOut, addUtilityForType, bool, bs, data, int, pBool, perror, pfn, plam, plet, pmatch, pstruct, punBData, punConstrData, punsafeConvertType } from "@harmoniclabs/plu-ts";
+import { PAddress, PBool, PByteString, PCredential, PCurrencySymbol, PScriptContext, PTokenName, PTxInInfo, PTxOut, PTxOutRef, PValidatorHash, Script, Term, TermFn, UtilityTermOf, bool, compile, data, fn, int, list, makeValidator, pBool, perror, pfn, phead, pif, pisEmpty, plam, plet, pmatch, precursive, pstruct, punBData, punConstrData, punsafeConvertType } from "@harmoniclabs/plu-ts";
+import { getPaymentHash } from "../utils/getPaymentHash";
+import { pvalueOf } from "../utils/PValue/pvalueOf";
+import { getOutCreds } from "../utils/getOutCreds";
 
 export const PReserveDatum = pstruct({
     PReserveDatum: {
@@ -42,6 +45,7 @@ const PReserveRedeemer = pstruct({
     }
 });
 
+
 /**
  * contract that holds the TEDY to be distributed
 **/
@@ -58,152 +62,126 @@ const tedyYeildReserve = pfn([
     datum, rdmr, ctx
 ) => {
 
-    return ctx.extract("txInfo","purpose").in(({ txInfo, purpose }) =>
+    const { tx, purpose } = ctx;
 
-        pmatch( rdmr )
-        /**
-         * reserve UTxO going back to main protocol treasurery
-         */
-        .onBackToOwner( _ => _.extract("ownerOracleRefInIdx").in(({ ownerOracleRefInIdx }) => 
+    return pmatch( rdmr )
+    /**
+     * reserve UTxO going back to main protocol treasurery
+     */
+    .onBackToOwner( ({ ownerOracleRefInIdx }) => {
 
-            txInfo.extract("inputs","refInputs","outputs").in( tx =>
+        const oracleRefIn = plet( tx.refInputs.at( ownerOracleRefInIdx ).resolved );
 
-            tx.refInputs.at( ownerOracleRefInIdx )
-            .extract("resolved").in( ({ resolved: _oracleRefIn }) => 
-            _oracleRefIn.extract("address","value","datum").in( oracleRefIn => 
-
-            plet(
-                plam( PTxOut.type, PCredential.type )
-                ( out =>
-                    out.extract("address").in( ({ address: outAddress }) =>
-                    outAddress.extract("credential").in( ({ credential }) =>
-                        credential
-                    ))
-                )
-            ).in( getOutCreds => 
-                
-            plet(
-                /*
-                only fails with the `NoDatum` `POutputDatum` constructor is used
-                instead both `DatumHash` and `InlineDatum` do have a field
-                
-                however, even if it is a `DatumHash` is not a problem,
-                since we are expecting some `PCredentials`, which are a structured data 
-                and not a `DataB` as the field of `DatumHash`
-                */
-                PCredential.fromData(
-                    punConstrData.$( oracleRefIn.datum as any )
-                    .snd.head, // first field (either datum hash or the actual datum)
-                )
-            ).in( thisContractOwnerCredentials => {
-
-                const isValidOracleRefIn = oracleRefIn.value.some( entry => entry.fst.eq( oracleCurrSymId ) ); 
-                
-                const oracleRefInComesFromContract = 
-                    // is actually a reference input form the oracle
-                    oracleRefIn.address.extract("credential")
-                    .in(({ credential }) =>
-                    
-                        pmatch( credential )
-                        .onPPubKeyCredential( _ => perror( bool ) )
-                        .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
-                            valHash.eq( oracleValHash ) 
-                        ))
-
-                    );
-
-                const reserveOwnerSigned =
-                    // check the inputs and not the signatories
-                    // 
-                    // this is done for two reasons:
-                    //
-                    // 1) if it is an actual user (a pkh), they would have to include one of
-                    //    their utxo anyway because of the tx fees
-                    // 2) to allow smart contracts to provide and stake liquidity
-                    tx.inputs.some( _in => 
-                        _in.extract("resolved").in( ({ resolved }) => 
-                            getOutCreds.$( resolved )
-                            .eq( thisContractOwnerCredentials )
-                        )
-                    );
-                    
-
-                const allOutsToOwner = 
-                    // requires one input from the reserve owner
-                    // (aka. the owner must be aware of the transfer)
-                    tx.outputs.every( out => getOutCreds.$( out ).eq( thisContractOwnerCredentials ) );
-
-                return isValidOracleRefIn
-                .and(  oracleRefInComesFromContract )
-                .and(  reserveOwnerSigned )
-                .and(  allOutsToOwner );
-                
-            })))))
-        ))
-        .onHarvest( _ => 
-            _.extract("ownInputIdx").in( ({ ownInputIdx }) =>
-
-            txInfo.extract("inputs").in( tx =>
+        const thisContractOwnerCredentials = plet(
+            /*
+            only fails with the `NoDatum` `POutputDatum` constructor is used
+            instead both `DatumHash` and `InlineDatum` do have a field
             
-            tx.inputs.at( ownInputIdx )
-            .extract("utxoRef","resolved")
-            .in( ({ utxoRef: ownInputUtxoRef, resolved: ownInput }) =>
-
-            plet(
-                ownInput.extract("address").in(({ address }) =>
-                address.extract("credential").in( ({ credential }) =>
-                    punBData.$(
-                        punConstrData.$( credential as any ).snd.head 
-                    )
-                ))
-            ).in( ownHash =>
-        
-            plet(
-                pmatch( purpose )
-                .onSpending( _ => _.extract("utxoRef")
-                    .in( ({ utxoRef: ownUtxoRef }) => ownUtxoRef )
+            however, even if it is a `DatumHash` is not a problem,
+            since we are expecting some `PCredentials`, which are a structured data 
+            and not a `DataB` as the field of `DatumHash`
+            */
+            PCredential.fromData(
+                phead( data ).$(
+                    oracleRefIn.datum.raw.fields
                 )
-                ._( _ => perror( PTxOutRef.type ))
-            ).in( ownUtxoRef => {
+            )
+        )
+        //.in( thisContractOwnerCredentials => {
 
-                const ownInputIsValid = ownInputUtxoRef.eq( ownUtxoRef );
+        const isValidOracleRefIn = oracleRefIn.value.some( entry => entry.fst.eq( oracleCurrSymId ) ); 
+            
+        // is actually a reference input form the oracle
+        const oracleRefInComesFromContract = 
+            pmatch( getOutCreds.$( oracleRefIn ) )
+            .onPScriptCredential( ({ valHash }) => valHash.eq( oracleValHash ) )
+            .onPPubKeyCredential( _ => perror( bool ) )
 
-                const fstInputIsForwarded = 
-                tx.inputs.head.extract("resolved").in( ({ resolved }) => 
-                resolved.extract("address").in(   ({ address })=> 
-                address.extract("credential").in( ({ credential }) =>
-
-                    pmatch( credential )
-                    .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
-                        datum.extract("forwardValidator").in( ({ forwardValidator }) => 
-                            valHash.eq( forwardValidator )
-                        )
-                    ))
-                    ._( _ => perror( bool ) )
-
-                )));
-
-                const allOtherInputsAreOwn =
-                tx.inputs.tail.every( _in =>
-                    _in.extract("resolved").in( ({ resolved }) => 
-                    resolved.extract("address").in(({ address }) =>
-                    address.extract("credential").in( ({ credential }) =>
-
-                        pmatch( credential )
-                        .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
-                            valHash.eq( ownHash ) 
-                        ))
-                        .onPPubKeyCredential( _ => perror( bool ) )
-                    
-                    )))
-                );
+        const reserveOwnerSigned =
+            // check the inputs and not the signatories
+            // 
+            // this is done for two reasons:
+            //
+            // 1) if it is an actual user (a pkh), they would have to include one of
+            //    their utxo anyway because of the tx fees
+            // 2) to allow smart contracts to provide and stake liquidity
+            tx.inputs.some( _in => 
+                getOutCreds.$( _in.resolved )
+                .eq( thisContractOwnerCredentials )
+            );
                 
-                return ownInputIsValid
-                .and(  fstInputIsForwarded )
-                .and(  allOtherInputsAreOwn );
 
-            })))))
+        const allOutsToOwner = 
+            // requires one input from the reserve owner
+            // (aka. the owner must be aware of the transfer)
+            tx.outputs.every( out => getOutCreds.$( out ).eq( thisContractOwnerCredentials ) );
+
+        return isValidOracleRefIn
+        .and(  oracleRefInComesFromContract )
+        .and(  reserveOwnerSigned )
+        .and(  allOutsToOwner );
+            
+    })
+    .onHarvest( ({ ownInputIdx }) => {
+
+        const _ownInput = plet(
+            tx.inputs.at( ownInputIdx )
+        );
+
+        const ownInputUtxoRef = _ownInput.utxoRef;
+        const ownInput = _ownInput.resolved;
+
+        const ownHash = plet(
+            punBData.$(
+                phead( data ).$(
+                    ownInput.address.credential.raw.fields
+                )
+            )
+        )
+    
+        const ownUtxoRef = plet(
+            pmatch( purpose )
+            .onSpending( ({ utxoRef }) => utxoRef )
+            ._( _ => perror( PTxOutRef.type ))
         )
 
+        const ownInputIsValid = ownInputUtxoRef.eq( ownUtxoRef );
+
+        
+        const fstInputIsForwarded = 
+            pmatch( tx.inputs.head.resolved.address.credential )
+            .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
+                datum.extract("forwardValidator").in( ({ forwardValidator }) => 
+                    valHash.eq( forwardValidator )
+                )
+            ))
+            ._( _ => perror( bool ) );
+
+        const allOtherInputsAreOwn =
+        tx.inputs.tail.every( ({ resolved: input }) =>
+            pmatch( input.address.credential )
+            .onPScriptCredential(({ valHash }) => valHash.eq( ownHash ) )
+            .onPPubKeyCredential( _ => perror( bool ) )
+        );
+        
+        return ownInputIsValid
+        .and(  fstInputIsForwarded )
+        .and(  allOtherInputsAreOwn );
+
+    })
+});
+
+
+export const mkTedyYeildReserveScript = (
+    oracleValHash: Term<typeof PValidatorHash>,
+    oracleCurrSymId: Term<typeof PCurrencySymbol>
+) => new Script(
+    "PlutusScriptV2",
+    compile(
+        makeValidator(
+            tedyYeildReserve
+            .$( oracleValHash )
+            .$( oracleCurrSymId )
+        )
     )
-})
+);

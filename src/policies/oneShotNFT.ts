@@ -1,73 +1,70 @@
-import { PList, PScriptContext, V2, bool, bs, data, fromData, perror, pfn, pfromData, pisEmpty, plet, pmatch, pserialiseData, pstruct, ptrace, punsafeConvertType, termTypeToString } from "@harmoniclabs/plu-ts";
+import { PCurrencySymbol, PScriptContext, PTxOutRef, Script, Term, V2, bool, compile, makeRedeemerValidator, pBool, perror, pfn, pisEmpty, plet, pmatch, pstruct } from "@harmoniclabs/plu-ts";
 
 export const MintRdmr = pstruct({
     Mint: {},
     Burn: {}
 });
 
-export const oneShotNFT = pfn([
-    V2.PTxOutRef.type,
+const oneShotNFTContract = pfn([
+    PTxOutRef.type,
 
     MintRdmr.type,
-    V2.PScriptContext.type
+    PScriptContext.type
 
 ],  bool)
-(( utxo, rdmr, ctx ) =>
+(( utxo, rdmr, ctx ) => {
     
-    ctx.extract("txInfo","purpose").in( ({ txInfo, purpose }) =>
-    txInfo.extract("inputs","mint").in( tx =>
+    const { tx, purpose } = ctx;
 
-        plet(
-            pmatch( purpose )
-            .onMinting( _ => _.extract("currencySym").in( ({ currencySym }) => currencySym ))
-            ._( _ => perror( V2.PCurrencySymbol.type ) as any )
-        ).in( ownCurrSym => 
+    const ownCurrSym = plet(
+        pmatch( purpose )
+        .onMinting(({ currencySym }) => currencySym )
+        ._( _ => perror( PCurrencySymbol.type ) as any )
+    )
 
-        pmatch( rdmr )
-        .onMint( _ =>
+    return pmatch( rdmr )
+    .onMint( _ => {
 
-            tx.inputs.some( input =>
-                input.extract("utxoRef").in( ({ utxoRef }) => utxoRef.eq( utxo ) )
-            )
+        const spendingRequriedUtxo = tx.inputs.some( _in => _in.utxoRef.eq( utxo ) );
+
+        
+        const uniqueAsset = tx.mint.some( entry => {
+            
+            const assets = plet( entry.snd );
+
+            return entry.fst.eq( ownCurrSym )
             .and(
-    
-                tx.mint.some( entry => {
-
-                    return entry.fst.eq( ownCurrSym )
-                    .and(
-                        plet( entry.snd ).in( assets =>
-
-                            pisEmpty.$( assets.tail )
-                            .and(
-                                assets.head.snd.eq( 1 )
-                            )
-
-                        )
-                    )
-
-                })
-
-            )
-
-        )
-        .onBurn( _ =>
-            tx.mint.some( entry =>
-
-                entry.fst.eq( ownCurrSym )
-
+                pisEmpty.$( assets.tail )
                 .and(
-                    plet( entry.snd ).in( assets =>
-
-                        pisEmpty.$( assets.tail )
-                        .and(
-                            assets.head.snd.lt( 0 )
-                        )
-
-                    )
+                    assets.head.snd.eq( 1 )
                 )
+            )
+        });
 
-            ) 
+        return spendingRequriedUtxo
+        .and(  uniqueAsset );
+    })
+    .onBurn( _ =>
+        tx.mint.some( entry => {
+
+            const assets = plet( entry.snd );
+
+            return entry.fst.eq( ownCurrSym )
+            .and(
+                pisEmpty.$( assets.tail )
+                .and(
+                    assets.head.snd.lt( 0 )
+                )
+            )
+        }) 
+    );
+})
+
+export const mkOneShotNFT = ( mustSpend: Term<typeof PTxOutRef>) => new Script(
+    "PlutusScriptV2",
+    compile(
+        makeRedeemerValidator(
+            oneShotNFTContract.$( mustSpend )
         )
-    
-    )))
-)
+    )
+);

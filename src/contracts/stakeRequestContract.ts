@@ -1,9 +1,10 @@
-import { PAddress, PCurrencySymbol, POutputDatum, PScriptContext, PTokenName, PValidatorHash, bool, int, pBSToData, pBool, pDataI, pIntToData, perror, pfn, pisEmpty, plet, pmatch, pserialiseData, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
-import { PLqStakingDatum } from "./liquidityStakingContract";
+import { PAddress, PCurrencySymbol, POutputDatum, PScriptContext, PTokenName, PValidatorHash, bool, data, int, pBSToData, pBool, pDataI, pIntToData, perror, pfn, phead, pisEmpty, plet, pmatch, pserialiseData, pstruct, punBData, punConstrData } from "@harmoniclabs/plu-ts";
+import { DatumOrRdmr } from "./liquidityStakingContract";
 import { pgetUpperCurrentTime } from "../utils/pgetCurrentTime";
 
 const PStakeRequestDatum = pstruct({
     PStakeRequestDatum: {
+        outToStakeContractIdx: int,
         address: PAddress.type,
         lpSym: PCurrencySymbol.type,
         lpName: PTokenName.type
@@ -30,123 +31,105 @@ const stakeRequestContract = pfn([
     datum, rdmr, ctx
 ) => {
 
-    return ctx.extract("txInfo").in( ({ txInfo }) =>
-    datum.extract("address","lpName","lpSym")
-    .in(({ address: ownerAddress, lpName, lpSym }) =>
-    
-        pmatch( rdmr )
-        .onCancel( _ => // tx signed by who created the stake request
-            txInfo.extract("signatories").in( ({ signatories }) =>
-            ownerAddress.extract("credential").in( ({ credential }) => 
-                plet(
-                    // extract signer withut matching constructor
-                    // if it is a validator hash will fail anyway
-                    // since validator hashes are not included in the `signatories` field
-                    punBData.$(
-                        punConstrData.$(
-                            credential as any
-                        ).snd.head
-                    )
-                ).in( ownerHash => 
-                    signatories.some( ownerHash.eqTerm )
+    const { tx } = ctx;
+
+    const { address: ownerAddress, lpName, lpSym } = datum; 
+
+    return pmatch( rdmr )
+    .onCancel( _ => // tx signed by who created the stake request
+        plet(
+            // extract signer without matching constructor
+            // if it is a validator hash will fail anyway
+            // since validator hashes are not included in the `signatories` field
+            punBData.$(
+                phead( data ).$(
+                    ownerAddress.credential.raw.fields
                 )
             )
-        ))
-        .onApprove( _ =>
-            _.extract("outToStakeContractIdx").in( ({ outToStakeContractIdx }) => 
-            txInfo.extract("inputs","outputs","interval","mint").in( tx =>
+        ).in( ownerHash => 
+            tx.signatories.some( ownerHash.eqTerm )
+        )
+    )
+    .onApprove(({ outToStakeContractIdx }) => {
 
+        const outGoingToStake = plet(
             tx.outputs.at( outToStakeContractIdx )
-            .extract("address","datum","value").in( outGoingToStake => {
+        );
 
-                const correctOutDatum = outGoingToStake.datum.eq(
-                    POutputDatum.InlineDatum({
-                        datum: PLqStakingDatum.PLqStakingDatum({
-                            ownerAddr: ownerAddress as any,
-                            since: pIntToData.$( pgetUpperCurrentTime.$( tx.interval ) ),
-                            lpName: pBSToData.$( lpName ) as any,
-                            lpSym:  pBSToData.$( lpSym  ) as any,
-                        }) as any
-                    })
-                );
+        const correctOutDatum = outGoingToStake.datum.eq(
+            POutputDatum.InlineDatum({
+                datum: DatumOrRdmr.StakingDatum({
+                    ownerAddr: ownerAddress as any,
+                    since: pIntToData.$( pgetUpperCurrentTime.$( tx.interval ) ),
+                    lpName: pBSToData.$( lpName ),
+                    lpSym:  pBSToData.$( lpSym  ),
+                }) as any
+            })
+        );
 
-                const outGoingToStakeValidator = outGoingToStake.address
-                .extract("credential").in( ({ credential: outPaymentCreds }) =>
-                
-                    pmatch( outPaymentCreds )
-                    .onPScriptCredential( _ => _.extract("valHash").in(({ valHash: outValHash }) => 
-                        outValHash.eq( stakeContractValHash )
-                    ))
-                    ._( _ => perror( bool ) )
+        const outGoingToStakeValidator = 
+            pmatch( outGoingToStake.address.credential )
+            .onPScriptCredential(({ valHash: outValHash }) => outValHash.eq( stakeContractValHash ) )
+            ._( _ => perror( bool ) )
 
-                )
+        // output going to stake contract is marked with NFT
+        const outContainsMintedNFT = plet( tx.mint.tail ).in( noADAValue =>
 
-                // output going to stake contract is marked with NFT
-                const outContainsMintedNFT = plet( tx.mint.tail ).in( noADAValue =>
+            // the minted value (ADA excluded) only contains 1 policy
+            pisEmpty.$( noADAValue.tail )
+            .and(
+                // first policy is ADA
+                // (every on-chain value has ADA)
+                tx.mint.head.fst.eq("")
+            )
+            .and(
 
-                    // the minted value (ADA excluded) only contains 1 policy
-                    pisEmpty.$( noADAValue.tail )
+                plet(
+                    noADAValue.head
+                ).in( validStakeNFTProofEntry => 
+                    // the minted assets are from a known policy
+                    validStakeNFTProofEntry.fst.eq( validStakeNFTProofPolicy )
                     .and(
-                        // first policy is ADA
-                        // (every on-chain value has ADA)
-                        tx.mint.head.fst.eq("")
-                    )
-                    .and(
 
+                        // we perform here the minting validation
+                        // because we want to be 100% sure that the minted token is unique
                         plet(
-                            noADAValue.head
-                        ).in( validStakeNFTProofEntry => 
-                            // the minted assets are from a known policy
-                            validStakeNFTProofEntry.fst.eq( validStakeNFTProofPolicy )
+                            validStakeNFTProofEntry.snd
+                        ).in( validStakeNFTProofAssets =>
+
+                            // single asset minted
+                            pisEmpty.$( validStakeNFTProofAssets.tail ) 
                             .and(
+                                plet( validStakeNFTProofAssets.head )
+                                .in( validStakeNFTProofAsset =>
 
-                                // we perform here the minting validation
-                                // because we want to be 100% sure that the minted token is unique
-                                plet(
-                                    validStakeNFTProofEntry.snd
-                                ).in( validStakeNFTProofAssets =>
+                                    validStakeNFTProofAsset.fst.eq(
+                                        
+                                        // asset name is the CBOR-serialized format
+                                        // of the first input of this transaction.
+                                        pserialiseData.$( tx.inputs.head.utxoRef as any )
 
-                                    // single asset minted
-                                    pisEmpty.$( validStakeNFTProofAssets.tail ) 
-                                    .and(
-                                        plet( validStakeNFTProofAssets.head )
-                                        .in( validStakeNFTProofAsset =>
-
-                                            validStakeNFTProofAsset.fst.eq(
-                                                
-                                                // asset name is the CBOR-serialized format
-                                                // of the first input of this transaction.
-                                                tx.inputs.at(0)
-                                                .extract("utxoRef")
-                                                .in( ({ utxoRef }) => 
-                                                    pserialiseData.$( utxoRef as any )
-                                                )
-
-                                            )
-                                            .and(
-                                                // quantity is 1
-                                                validStakeNFTProofAsset.snd.eq( 1 )
-                                            )
-                                        )
                                     )
-
+                                    .and(
+                                        // quantity is 1
+                                        validStakeNFTProofAsset.snd.eq( 1 )
+                                    )
                                 )
                             )
+
                         )
-
                     )
-                    .and(
-                        outGoingToStake.value.some( entry => entry.fst.eq( validStakeNFTProofPolicy ) )
-                    )
+                )
 
-                );
+            )
+            .and(
+                outGoingToStake.value.some( entry => entry.fst.eq( validStakeNFTProofPolicy ) )
+            )
 
-                return correctOutDatum
-                .and(  outGoingToStakeValidator )
-                .and(  outContainsMintedNFT     );
+        );
 
-            })))
-        )
-    
-    ))
-});
+        return correctOutDatum
+        .and(  outGoingToStakeValidator )
+        .and(  outContainsMintedNFT     );
+    })
+})

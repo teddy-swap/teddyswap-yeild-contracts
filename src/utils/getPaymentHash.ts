@@ -1,17 +1,18 @@
-import { phoist, plam, PCredential, bs, punBData, punConstrData, PAddress } from "@harmoniclabs/plu-ts";
+import { phoist, plam, PCredential, bs, punBData, PAddress, phead, data } from "@harmoniclabs/plu-ts";
 
 export const getCredentialHash = phoist(
     plam( PCredential.type, bs )
     ( creds =>
         punBData.$(
-            punConstrData.$( creds as any ).snd.head 
+            phead( data ).$(
+                creds.raw.fields
+            )
         )
     )
 )
 
 export const getPaymentHash = phoist(
     plam( PAddress.type, bs )
-    ( addr => addr.extract("credential")
-        .in( ({ credential }) => getCredentialHash.$( credential ) )
+    ( addr => getCredentialHash.$( addr.credential )
     )
 );

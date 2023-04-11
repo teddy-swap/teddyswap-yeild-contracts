@@ -9,3 +9,9 @@ coverage/
 
 # output of build
 dist
+
+node_modules/
+testnet/
+dist/
+.cardanocli_pluts_tmp/
+.env

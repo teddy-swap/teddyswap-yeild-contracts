@@ -68,33 +68,37 @@ export const pvalueOf = phoist(
         precursiveList( int, PValueEntryT )
         .$( _self => pdelay( pInt(0) ) )
         .$( 
+
             pfn([
                 fn([ list(PValueEntryT) ], int ),
                 PValueEntryT,
                 list( PValueEntryT )
             ],  int)
-            ((self, head, tail ) =>
-            pif( int ).$( head.fst.eq( currSym ) )
-            .then(
 
-                precursiveList( int, PAssetsEntryT )
-                .$( _self => pdelay( pInt(0) ) )
-                .$(
-                    pfn([
-                        fn([ list(PAssetsEntryT) ], int ),
-                        PAssetsEntryT,
-                        list( PAssetsEntryT )
-                    ],  int)
-                    (
-                        (self, head, tail) =>
-                        pif( int ).$( head.fst.eq( tokenName ) )
-                        .then( head.snd )
-                        .else( self.$( tail ) as any )
+            ((self, head, tail ) =>
+                pif( int ).$( head.fst.eq( currSym ) )
+                .then(
+
+                    precursiveList( int, PAssetsEntryT )
+                    .$( _self => pdelay( pInt(0) ) )
+                    .$(
+
+                        pfn([
+                            fn([ list(PAssetsEntryT) ], int ),
+                            PAssetsEntryT,
+                            list( PAssetsEntryT )
+                        ],  int)
+
+                        ((self, head, tail) =>
+                            pif( int ).$( head.fst.eq( tokenName ) )
+                            .then( head.snd )
+                            .else( self.$( tail ) as any )
+                        )
                     )
+                    .$( head.snd )
                 )
-                .$( head.snd )
+                .else( self.$( tail ) as any )
             )
-            .else( self.$( tail ) as any ))
         )
         .$( value )
     )
