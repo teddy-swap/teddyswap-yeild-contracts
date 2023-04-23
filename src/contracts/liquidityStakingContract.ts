@@ -1,4 +1,4 @@
-import { PAddress, PBool, PByteString, PCredential, PCurrencySymbol, POutputDatum, PScriptContext, PScriptPurpose, PTokenName, PTxInInfo, PTxInfo, PTxOut, PTxOutRef, PUnit, PValidatorHash, Script, Term, TermFn, UtilityTermOf, bool, bs, compile, data, fn, int, list, pBSToData, pBool, pByteString, pIntToData, peqBs, perror, pfn, phead, pif, pisEmpty, plam, plet, pmakeUnit, pmatch, precursive, pserialiseData, pstruct, punBData, punConstrData, punsafeConvertType, unit } from "@harmoniclabs/plu-ts";
+import { PAddress, PBool, PByteString, PCurrencySymbol, POutputDatum, PScriptContext, PScriptPurpose, PTokenName, PTxInInfo, PTxInfo, PTxOut, PTxOutRef, PUnit, PValidatorHash, Script, Term, TermFn, UtilityTermOf, bool, bs, compile, data, fn, int, list, pBSToData, pBool, pByteString, pIntToData, peqBs, perror, pfn, phead, pif, pisEmpty, plam, plet, pmakeUnit, pmatch, precursive, pserialiseData, pstruct, punBData, punConstrData, punsafeConvertType, unit } from "@harmoniclabs/plu-ts";
 import { getPaymentHash } from "../utils/getPaymentHash";
 import { pvalueOf } from "../utils/PValue/pvalueOf";
 import { PReserveDatum } from "./tedyYeildReserve";
@@ -76,6 +76,7 @@ const untyped_liquidityStakingContract = pfn([
         )
         .in( ownHash => 
             pmatch( datum_or_rdmr )
+            .onStakingDatum(_ => perror( unit ) )
             .onMintRedeemer( rdmr => {
 
                 const { tx } = ctx;
@@ -139,7 +140,6 @@ const untyped_liquidityStakingContract = pfn([
                 // output going to stake contract is marked with NFT
                 const outContainsMintedNFT = outGoingToStake.value.some( entry => entry.fst.eq( ownHash ) );
 
-                
                 return pif( unit ).$(
                     correctOutDatum
                     .and(  outGoingToStakeValidator )
@@ -149,7 +149,6 @@ const untyped_liquidityStakingContract = pfn([
                 .then( pmakeUnit() )
                 .else( perror( unit ) );
             })
-            ._(_ => perror( unit ) )
         )
     )
     // used as validator
@@ -166,6 +165,7 @@ const untyped_liquidityStakingContract = pfn([
         plam( PScriptContext.type, unit )
         ( ctx =>
             pmatch( datum_or_rdmr )
+            .onMintRedeemer( _ => perror( unit ) )
             // unwrap
             .onStakingDatum( stakingInfos => 
             
@@ -296,7 +296,6 @@ const untyped_liquidityStakingContract = pfn([
                 .then( pmakeUnit() )
                 .else( perror( unit ) );
             }))
-            ._( _ => perror( unit ) )
         ),
         unit
     ))

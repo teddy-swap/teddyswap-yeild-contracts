@@ -147,14 +147,11 @@ const tedyYeildReserve = pfn([
 
         const ownInputIsValid = ownInputUtxoRef.eq( ownUtxoRef );
 
-        
         const fstInputIsForwarded = 
             pmatch( tx.inputs.head.resolved.address.credential )
-            .onPScriptCredential( _ => _.extract("valHash").in( ({ valHash }) =>
-                datum.extract("forwardValidator").in( ({ forwardValidator }) => 
-                    valHash.eq( forwardValidator )
-                )
-            ))
+            .onPScriptCredential(({ valHash }) =>
+                valHash.eq( datum.forwardValidator )
+            )
             ._( _ => perror( bool ) );
 
         const allOtherInputsAreOwn =

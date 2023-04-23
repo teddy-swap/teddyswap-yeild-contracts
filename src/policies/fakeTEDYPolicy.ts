@@ -1,9 +1,12 @@
-import { Script, nativeScriptToCbor } from "@harmoniclabs/plu-ts";
+import { Script, compile, data, pfn, pmakeUnit, unit } from "@harmoniclabs/plu-ts";
 
 export const fakeTEDYPolicy = new Script(
     "NativeScript",
-    nativeScriptToCbor({
-        type: "after",
-        slot: 0
-    }).toBuffer()
+    compile(
+        pfn([
+            data,
+            data
+        ],  unit)
+        (( _stuff, _ctx ) => pmakeUnit() )
+    )
 );
