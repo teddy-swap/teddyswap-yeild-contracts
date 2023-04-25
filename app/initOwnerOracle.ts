@@ -11,6 +11,7 @@ async function setup()
 
     const utxos = await cli.query.utxo({ address });
 
+    // mustSpendUtxo.txt created calling compile
     const [ txId, idx ] = (await readFile("./testnet/mustSpendUtxo.txt", { encoding: "utf-8" })).split("#");
 
     const mustSpend = new TxOutRef({

@@ -1,13 +1,8 @@
 import { Address, DataI, Hash28, PAddress, PaymentCredentials, Value, dataToCbor, pData, pDataB, pDataI } from "@harmoniclabs/plu-ts";
-import { fakeLpTokenPolicy } from "../src/policies/fakeLpTokenPolicy";
 import { cli } from "./utils/cli";
-import { existsSync } from "fs";
-import { PReserveDatum } from "../src/contracts/tedyYeildReserve";
-import { readFile, writeFile } from "fs/promises";
-import { fakeTEDYPolicy } from "../src/policies/fakeTEDYPolicy";
-import { getStakeContractHash } from "./common/getStakeContractHash";
 import { DatumOrRdmr } from "../src/contracts/liquidityStakingContract";
 import { getFakeLpTokenHash } from "./common/getFakeLpTokenHash";
+import { slotToPOSIX } from "./utils/slotToPOSIX";
 
 async function setup()
 {
@@ -40,6 +35,9 @@ async function setup()
 
     const fakeLpTokenHash: Hash28 = await getFakeLpTokenHash();
 
+    // 1000 slot form now is ~ 10 secs in private testnet
+    const upperBoundSlot = cli.query.tipSync().slot + 1_000;
+
     let tx = await cli.transaction.build({
         inputs: utxos.map( utxo => ({ utxo })) as any,
         collaterals,
@@ -65,7 +63,7 @@ async function setup()
                     ownerAddr: pData( address.toData() ),
                     lpSym:  pDataB( fakeLpTokenHash.toBuffer() ),
                     lpName: pDataB( Buffer.from("lp","utf-8") ),
-                    since: pDataI( 0 )
+                    since: pDataI( await slotToPOSIX( upperBoundSlot ) )
                 }),
                 value: Value.add(
                     Value.lovelaces( 2_000_000 ),
@@ -73,7 +71,12 @@ async function setup()
                 )
             }
         ],
+        invalidAfter: upperBoundSlot,
         changeAddress: address
-    })
+    });
+
+    tx = await cli.transaction.sign({ tx, privateKey });
+
+    await cli.transaction.submit({ tx });
 }
 setup();

@@ -1,5 +1,4 @@
-import { Address, DataI, Hash28, PTokenName, PValidatorHash, PaymentCredentials, Value, pDataB, pDataI } from "@harmoniclabs/plu-ts";
-import { fakeLpTokenPolicy } from "../src/policies/fakeLpTokenPolicy";
+import { Address, DataI, Hash28, PaymentCredentials, Value, pDataB, pDataI } from "@harmoniclabs/plu-ts";
 import { cli } from "./utils/cli";
 import { existsSync } from "fs";
 import { PReserveDatum } from "../src/contracts/tedyYeildReserve";
@@ -97,7 +96,7 @@ function getArgs(): [
     const [ _, __, epoch, amt ] = process.argv;
 
     return [
-        parseInt( epoch ),
-        amt !== undefined && /^\d+$/.test( amt ) ? parseInt( amt ) : 1_000_000
+        Math.abs( parseInt( epoch ) ),
+        amt !== undefined && /^\d+$/.test( amt ) ? Math.abs( parseInt( amt ) ) : 1_000_000
     ];
 }
