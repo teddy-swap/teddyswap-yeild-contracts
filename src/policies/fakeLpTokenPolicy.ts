@@ -1,7 +1,7 @@
 import { Script, compile, data, int, nativeScriptToCbor, pInt, pfn, pmakeUnit, unit } from "@harmoniclabs/plu-ts";
 
 export const fakeLpTokenPolicy = new Script(
-    "NativeScript",
+    "PlutusScriptV2",
     compile(
         pfn([
             data,

@@ -1,4 +1,4 @@
-import { Address, DataI, Hash28, PAddress, PaymentCredentials, Value, dataToCbor, pData, pDataB, pDataI } from "@harmoniclabs/plu-ts";
+import { Address, Hash28, PaymentCredentials, Value, dataToCbor, pData, pDataB, pDataI } from "@harmoniclabs/plu-ts";
 import { cli } from "./utils/cli";
 import { DatumOrRdmr } from "../src/contracts/liquidityStakingContract";
 import { getFakeLpTokenHash } from "./common/getFakeLpTokenHash";

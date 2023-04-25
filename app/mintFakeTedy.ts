@@ -1,4 +1,4 @@
-import { Address, DataI, Hash28, PaymentCredentials, Value, pDataB, pDataI } from "@harmoniclabs/plu-ts";
+import { Address, DataI, Hash28, PaymentCredentials, Value, costModelV1Keys, pDataB, pDataI } from "@harmoniclabs/plu-ts";
 import { cli } from "./utils/cli";
 import { existsSync } from "fs";
 import { PReserveDatum } from "../src/contracts/tedyYeildReserve";

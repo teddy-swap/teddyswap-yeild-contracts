@@ -12,6 +12,12 @@ then in this directory you need to create an `.env` file specifying a `PRIVATE_T
 PRIVATE_TESTNET_PATH="path/to/cardano-private-testnet-setup/private-testnet"
 ```
 
+### run the `setup` script if in private tesnet
+
+```bash
+npm run yeild:setup
+```
+
 ### compiling the contracts
 
 ```bash
