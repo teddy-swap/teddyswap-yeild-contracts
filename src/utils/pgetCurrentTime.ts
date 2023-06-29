@@ -1,13 +1,13 @@
-import { PExtended, PLowerBound, PPOSIXTimeRange, int, pInt, perror, phoist, plam, pmatch } from "@harmoniclabs/plu-ts";
+import { PExtended, PPOSIXTimeRange, int, pInt, perror, phoist, plam, pmatch } from "@harmoniclabs/plu-ts";
 
 /** **INLINED** */
-const psecondsInDay = pInt( 86400 );
+const pmillisecondsInDay = pInt( 86_400_000 );
 
 const pgetTimeFromBound = phoist(
     plam( PExtended.type, int )
     ( bound => 
         pmatch( bound )
-        .onPFinite( ({ _0 }) => _0.div( psecondsInDay ) )
+        .onPFinite( ({ _0 }) => _0.div( pmillisecondsInDay ) )
         ._( _ => perror( int ) )
     )
 )

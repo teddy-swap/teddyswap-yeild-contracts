@@ -1,4 +1,4 @@
-import { PScriptContext, Script, bool, bs, compile, makeRedeemerValidator, makeValidator, pBool, perror, pfn, pisEmpty, plet, pmatch, pserialiseData, pstruct } from "@harmoniclabs/plu-ts";
+import { PScriptContext, Script, bool, bs, compile, makeRedeemerValidator, makeValidator, pBool, pblake2b_256, perror, pfn, pisEmpty, plet, pmatch, pserialiseData, pstruct } from "@harmoniclabs/plu-ts";
 
 export const PolicyRedeemer = pstruct({
     Mint: {},
@@ -38,7 +38,11 @@ const validStakeNFTProofPolicy = pfn([
 
         const tokenMinted = plet( assets.head );
 
-        const uniqueName = tokenMinted.fst.eq( pserialiseData.$( fstIn.utxoRef as any ) );
+        const uniqueName = tokenMinted.fst.eq(
+            pblake2b_256.$(
+                pserialiseData.$( fstIn.utxoRef as any )   
+            )
+        );
 
         const qty1 = tokenMinted.snd.eq( 1 );
 

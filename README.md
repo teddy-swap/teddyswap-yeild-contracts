@@ -1,6 +1,32 @@
 # teddyswap lp tokens staking contracts
 
 
+## contracts interactions 
+
+```mermaid
+flowchart TD
+    bot([bot])
+    yeildReserveOwnerOracle
+    tedyYeildReserve
+    liquidityStakingContract
+    user((user))
+
+    liquidityStakingContract == mints on first deposit ==> liquidityStakingContract
+
+    yeildReserveOwnerOracle -. owner ref .-> tedyYeildReserve
+
+    liquidityStakingContract -. snapshots .-> bot
+    bot -- creates utxos -->  tedyYeildReserve
+
+    tedyYeildReserve  == sends rewards ==> liquidityStakingContract
+
+    liquidityStakingContract  == sends back rest ==> tedyYeildReserve
+
+    user == deposits / mints ==> liquidityStakingContract
+    user == harvests ==> liquidityStakingContract
+    liquidityStakingContract  == sends rewards ==> user
+```
+
 ## Local testing procedure
 
 ### Prerequisites
@@ -39,5 +65,5 @@ npm run yeild:mintFakeTedy (epoch_index) [mint_amount]
 ### create a stake account
 
 ```bash
-npm run yeild:firstStake (epoch_index) [mint_amount]
+npm run yeild:firstStake
 ```

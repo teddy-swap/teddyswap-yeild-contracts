@@ -4,10 +4,12 @@ import { copyFile, mkdir, writeFile } from "fs/promises";
 import { cli } from "./utils/cli";
 import { yeildReserveOwnerOracleScript } from "../src/contracts/yeildReserveOwnerOracle";
 import { mkTedyYeildReserveScript } from "../src/contracts/tedyYeildReserve";
-import { PCurrencySymbol, PTxOutRef, PValidatorHash, pByteString, pData } from "@harmoniclabs/plu-ts";
+import { PCurrencySymbol, PTokenName, PTxOutRef, PValidatorHash, pByteString, pData } from "@harmoniclabs/plu-ts";
 import { mkStakingContract } from "../src/contracts/liquidityStakingContract";
 import { execSync } from "child_process";
 import { mkOneShotNFT } from "../src/policies/oneShotNFT";
+import { fakeTEDYPolicy } from "../src/policies/fakeTEDYPolicy";
+import { fromAscii } from "@harmoniclabs/uint8array-utils";
 
 config();
 
@@ -45,7 +47,9 @@ async function setup()
     );
 
     const stakingContract = mkStakingContract(
-        PValidatorHash.from( tedyYeildReserveScript.hash.toBuffer() )
+        PValidatorHash.from( tedyYeildReserveScript.hash.toBuffer() ),
+        PCurrencySymbol.from( fakeTEDYPolicy.hash.toBuffer() ),
+        PTokenName.from( fromAscii("fakeTEDY") )
     );
     
     promises.push(

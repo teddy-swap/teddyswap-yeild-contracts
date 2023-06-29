@@ -1,11 +1,11 @@
-import { Address, DataI, Hash28, PaymentCredentials, Value, costModelV1Keys, pDataB, pDataI } from "@harmoniclabs/plu-ts";
+import { Address, DataI, Hash28, PaymentCredentials, Value, pDataB, pDataI } from "@harmoniclabs/plu-ts";
 import { cli } from "./utils/cli";
 import { existsSync } from "fs";
 import { PReserveDatum } from "../src/contracts/tedyYeildReserve";
-import { readFile, writeFile } from "fs/promises";
 import { fakeTEDYPolicy } from "../src/policies/fakeTEDYPolicy";
 import { getStakeContractHash } from "./common/getStakeContractHash";
 import { getFakeLpTokenHash } from "./common/getFakeLpTokenHash";
+import { fromAscii } from "@harmoniclabs/uint8array-utils";
 
 
 async function setup()
@@ -40,10 +40,11 @@ async function setup()
     const fakeLpTokenHash: Hash28 = await getFakeLpTokenHash();
 
     const mintedValue = new Value([
-        {
-            policy: fakeTEDYPolicy.hash,
-            assets: { fakeTEDY: mint_amount }
-        }
+        Value.singleAssetEntry(
+            fakeTEDYPolicy.hash,
+            fromAscii( "fakeTEDY" ),
+            mint_amount
+        )
     ]);
 
     let tx = await cli.transaction.build({
@@ -51,6 +52,13 @@ async function setup()
             utxo: u
         })) as any,
         collaterals,
+        collateralReturn: {
+            address: address,
+            value: Value.sub(
+                collaterals[0].resolved.value,
+                Value.lovelaces( 5_000_000 )
+            )
+        },
         mints: [
             {
                 script: {

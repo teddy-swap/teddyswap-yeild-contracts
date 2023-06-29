@@ -1,9 +1,11 @@
-import { PAddress, PBool, PByteString, PCurrencySymbol, POutputDatum, PScriptContext, PScriptPurpose, PTokenName, PTxInInfo, PTxInfo, PTxOut, PTxOutRef, PUnit, PValidatorHash, Script, Term, TermFn, UtilityTermOf, bool, bs, compile, data, fn, int, list, pBSToData, pBool, pByteString, pIntToData, peqBs, perror, pfn, phead, pif, pisEmpty, plam, plet, pmakeUnit, pmatch, precursive, pserialiseData, pstruct, punBData, punConstrData, punsafeConvertType, unit } from "@harmoniclabs/plu-ts";
+import { PAddress, PBool, PByteString, PCurrencySymbol, PDelayed, POutputDatum, PScriptContext, PScriptPurpose, PString, PTokenName, PTxInInfo, PTxInfo, PTxOut, PTxOutRef, PUnit, PValidatorHash, Script, Term, TermFn, UtilityTermOf, bool, bs, compile, data, fn, int, list, pBSToData, pBool, pByteString, pIntToData, pStr, pblake2b_256, pdelay, peqBs, perror, pfn, phead, pif, pisEmpty, plam, plet, pmakeUnit, pmatch, precursive, pserialiseData, pstruct, ptrace, ptraceError, ptraceIfFalse, punBData, punConstrData, punsafeConvertType, unit } from "@harmoniclabs/plu-ts";
 import { getPaymentHash } from "../utils/getPaymentHash";
 import { pvalueOf } from "../utils/PValue/pvalueOf";
 import { PReserveDatum } from "./tedyYeildReserve";
 import { pgetLowerCurrentTime, pgetUpperCurrentTime } from "../utils/pgetCurrentTime";
 import { getOutCreds } from "../utils/getOutCreds";
+import { ptraceNum } from "../utils/pNumToBS";
+import { ptraceBs } from "../utils/pBsToHex";
 
 export const DatumOrRdmr = pstruct({
     StakingDatum: {
@@ -19,6 +21,8 @@ export const DatumOrRdmr = pstruct({
         lpName: PTokenName.type
     }
 });
+
+type StakingDatum = ReturnType<typeof DatumOrRdmr.StakingDatum>
 
 const RdmrOrCtx = pstruct({
     // MUST be the first constructor
@@ -42,6 +46,11 @@ const RdmrOrCtx = pstruct({
         upToTime: int
     }
 });
+
+function pdstr( str: string ): Term<PDelayed<PString>>
+{
+    return pdelay( pStr( str ) );
+}
 
 const validateIO_t = fn([
     int, // minTime
@@ -72,11 +81,11 @@ const untyped_liquidityStakingContract = pfn([
         plet(
             pmatch( ctx.purpose )
             .onMinting(({ currencySym }) => currencySym )
-            ._( _ => perror( bs ) )
+            ._( _ => ptraceError( bs ).$("f") )
         )
         .in( ownHash => 
             pmatch( datum_or_rdmr )
-            .onStakingDatum(_ => perror( unit ) )
+            .onStakingDatum(_ => ptraceError( unit ).$("g") )
             .onMintRedeemer( rdmr => {
 
                 const { tx } = ctx;
@@ -96,7 +105,11 @@ const untyped_liquidityStakingContract = pfn([
                     POutputDatum.InlineDatum({
                         datum: DatumOrRdmr.StakingDatum({
                             ownerAddr: ownerAddress as any,
-                            since: pIntToData.$( pgetUpperCurrentTime.$( tx.interval ) ),
+                            since: pIntToData.$(
+                                ptraceNum.$(
+                                    pgetUpperCurrentTime.$( tx.interval )
+                                )
+                            ),
                             lpName: pBSToData.$( lpName ),
                             lpSym:  pBSToData.$( lpSym  ),
                         }) as any
@@ -106,7 +119,7 @@ const untyped_liquidityStakingContract = pfn([
                 const outGoingToStakeValidator = 
                     pmatch( outGoingToStake.address.credential )
                     .onPScriptCredential(({ valHash: outValHash }) => outValHash.eq( ownHash ) )
-                    ._( _ => perror( bool ) );
+                    ._( _ => ptraceError( bool ).$("h") );
 
                 const fstIn = ctx.tx.inputs.head;
 
@@ -126,25 +139,45 @@ const untyped_liquidityStakingContract = pfn([
 
                 const tokenMinted = plet( assets.head );
 
-                const uniqueName = tokenMinted.fst.eq( pserialiseData.$( fstIn.utxoRef as any ) );
+                const uniqueName = tokenMinted.fst.eq(
+                    pblake2b_256.$(
+                        fstIn.utxoRef.id.txId.prepend( fstIn.utxoRef.index )
+                    )
+                );
 
-                const qty1 = tokenMinted.snd.eq( 1 );
+                const qty = plet( tokenMinted.snd );
 
-                const correctMint = onlyTwoEntries
-                .and(  fstIsADA )
-                .and(  sndIsOwn )
-                .and(  singleMintedEntry )
-                .and(  uniqueName )
-                .and(  qty1 );
+                const qtyIs1 = qty.eq( 1 );
+
+                const correctMint =
+                ptraceIfFalse.$(pdstr("p")).$( onlyTwoEntries )
+                .and( ptraceIfFalse.$(pdstr("q")).$( fstIsADA ) )
+                .and( ptraceIfFalse.$(pdstr("r")).$( sndIsOwn ) )
+                .and( ptraceIfFalse.$(pdstr("S")).$( singleMintedEntry ) )
+                .and( ptraceIfFalse.$(pdstr("t")).$( uniqueName ) )
+                .and( ptraceIfFalse.$(pdstr("u")).$( qtyIs1 ) );
 
                 // output going to stake contract is marked with NFT
                 const outContainsMintedNFT = outGoingToStake.value.some( entry => entry.fst.eq( ownHash ) );
 
                 return pif( unit ).$(
-                    correctOutDatum
-                    .and(  outGoingToStakeValidator )
-                    .and(  correctMint )
-                    .and(  outContainsMintedNFT     )
+                    ptrace( bool ).$("mint")
+                    .$(
+                        pif( bool ).$( qty.lt( 0 ) )
+                        .then( pBool( true ) ) // always allow burn
+                        .else(
+                            ptraceIfFalse.$(pdstr("l")).$( outGoingToStakeValidator )
+                            .and( 
+                                ptraceIfFalse.$(pdstr("m")).$( correctOutDatum )
+                            )
+                            .and( 
+                                ptraceIfFalse.$(pdstr("n")).$( correctMint )
+                            )
+                            .and( 
+                                ptraceIfFalse.$(pdstr("o")).$( outContainsMintedNFT )
+                            )
+                        )
+                    )
                 )
                 .then( pmakeUnit() )
                 .else( perror( unit ) );
@@ -165,7 +198,7 @@ const untyped_liquidityStakingContract = pfn([
         plam( PScriptContext.type, unit )
         ( ctx =>
             pmatch( datum_or_rdmr )
-            .onMintRedeemer( _ => perror( unit ) )
+            .onMintRedeemer( _ => ptraceError( unit ).$("l") )
             // unwrap
             .onStakingDatum( stakingInfos => 
             
@@ -173,7 +206,7 @@ const untyped_liquidityStakingContract = pfn([
             plet(
                 pmatch( ctx.purpose )
                 .onSpending(({ utxoRef }) => utxoRef )
-                ._( _ => perror( PTxOutRef.type ) )
+                ._( _ => ptraceError( PTxOutRef.type ).$("m") )
             ).in( ownUtxoRef => {
     
                 const { tx } = ctx;
@@ -289,33 +322,40 @@ const untyped_liquidityStakingContract = pfn([
                 );
     
                 return pif( unit ).$(
-                    fstInputIsOwn
-                    .and( ownInputIsCertified )
-                    .and( validIO )
+                    ptrace( bool ).$("spend")
+                    .$(
+                        fstInputIsOwn
+                        .and( ownInputIsCertified )
+                        .and( validIO )
+                    )
                 )
                 .then( pmakeUnit() )
-                .else( perror( unit ) );
+                .else( ptraceError( unit ).$("s") );
             }))
         ),
         unit
     ))
 );
 
-
-export const mkStakingContract = ( reserveValHash: Term<typeof PValidatorHash> ) => new Script(
+export const mkStakingContract = (
+    reserveValHash: Term<typeof PValidatorHash>,
+    TEDY_policy: Term<typeof PCurrencySymbol>,
+    TEDY_tokenName: Term<typeof PTokenName>
+) => new Script(
     "PlutusScriptV2",
     compile(
-        untyped_liquidityStakingContract.$( reserveValHash )
+        untyped_liquidityStakingContract
+        .$( reserveValHash )
+        .$( TEDY_policy )
+        .$( TEDY_tokenName )
     )
 );
-
-
 
 /**
  * all the inputs from `1` to `n` MUST be from the reserve
  * and MUST be sorted by reward epoch
  * 
- * we need to validate tx inputs and outputs together
+ * we need to validate both inputs and outputs together
  * because each input from the reserve 
  * must go back to the reserve (unless drained)
  * 
@@ -347,13 +387,13 @@ function mkValidateIO(
                 const inDatum = plet(
                     pmatch( input.datum )
                     .onInlineDatum(({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) )
-                    ._( _ => perror( PReserveDatum.type ) )
+                    ._( _ => ptraceError( PReserveDatum.type ).$("d") )
                 );
 
                 const outDatum = plet(
                     pmatch( output.datum )
                     .onInlineDatum( ({ datum }) => punsafeConvertType( datum, PReserveDatum.type ) )
-                    ._( _ => perror( PReserveDatum.type ) )
+                    ._( _ => ptraceError( PReserveDatum.type ).$("e") )
                 );
     
                 const meantForThisLpToken =

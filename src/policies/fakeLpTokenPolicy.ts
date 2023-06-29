@@ -1,4 +1,4 @@
-import { Script, compile, data, int, nativeScriptToCbor, pInt, pfn, pmakeUnit, unit } from "@harmoniclabs/plu-ts";
+import { Script, compile, data, int, pInt, pfn } from "@harmoniclabs/plu-ts";
 
 export const fakeLpTokenPolicy = new Script(
     "PlutusScriptV2",

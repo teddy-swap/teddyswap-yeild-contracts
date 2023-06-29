@@ -41,12 +41,19 @@ async function setup()
     let tx = await cli.transaction.build({
         inputs: [{ utxo }],
         collaterals: [ utxo ],
+        collateralReturn: {
+            address: address,
+            value: Value.sub(
+                utxo.resolved.value,
+                Value.lovelaces( 5_000_000 )
+            )
+        },
         mints: [
             {
                 value: new Value([
                     {
                         policy: oneShotNFT.hash,
-                        assets: { "": 1 }
+                        assets: [{ name: new Uint8Array([]), quantity: 1 }]
                     }
                 ]),
                 script: {
@@ -60,11 +67,12 @@ async function setup()
             {
                 address: yeildReserveOwnerOracleAddr,
                 value: new Value([
-                    { policy: "", assets: { "": 2_000_000 } },
-                    {
-                        policy: oneShotNFT.hash,
-                        assets: { "": 1 }
-                    }
+                    Value.lovelaceEntry( 2_000_000 ),
+                    Value.singleAssetEntry(
+                        oneShotNFT.hash,
+                        new Uint8Array([]),
+                        1
+                    )
                 ]),
                 datum: PCredential.PPubKeyCredential({
                     pkh: pData( address.paymentCreds.hash.toData() )

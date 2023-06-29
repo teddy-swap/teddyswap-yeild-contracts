@@ -1,6 +1,4 @@
 import { PAddress, PBool, PByteString, PCredential, PCurrencySymbol, PScriptContext, PTokenName, PTxInInfo, PTxOut, PTxOutRef, PValidatorHash, Script, Term, TermFn, UtilityTermOf, bool, compile, data, fn, int, list, makeValidator, pBool, perror, pfn, phead, pif, pisEmpty, plam, plet, pmatch, precursive, pstruct, punBData, punConstrData, punsafeConvertType } from "@harmoniclabs/plu-ts";
-import { getPaymentHash } from "../utils/getPaymentHash";
-import { pvalueOf } from "../utils/PValue/pvalueOf";
 import { getOutCreds } from "../utils/getOutCreds";
 
 export const PReserveDatum = pstruct({
@@ -23,6 +21,10 @@ export const PReserveDatum = pstruct({
          * (to prevent double satisfaciton)
          * 
          * and we also check that all other inputs are from this contract ( the reserve )
+         * 
+         * There is no need to check that all the other inputs have the same `forwardedValidator`
+         * because only the first input can be a different contract and if it differs for any of these inputs
+         * then the `fstInputIsForwarded` condition fails
          * 
          * we can't really check the outputs as some migth be drained (aka. all rewards on that utxo are distributed)
          * so also outputs are forwarded to the validator specified
@@ -51,7 +53,7 @@ const PReserveRedeemer = pstruct({
 **/
 const tedyYeildReserve = pfn([
     PValidatorHash.type,
-    PCurrencySymbol.type,
+    PCurrencySymbol.type, // NFT currency symbol that must be present in the oracle value
     PReserveDatum.type,
     PReserveRedeemer.type,
     PScriptContext.type
@@ -79,19 +81,22 @@ const tedyYeildReserve = pfn([
             
             however, even if it is a `DatumHash` is not a problem,
             since we are expecting some `PCredentials`, which are a structured data 
-            and not a `DataB` as the field of `DatumHash`
+            and not a `DataB` as the field of `DatumHash` (machine will throw an error on equality)
+
+            so essentially only works with inline datums
             */
             PCredential.fromData(
-                phead( data ).$(
-                    oracleRefIn.datum.raw.fields
-                )
+                oracleRefIn.datum.raw.fields.head
             )
         )
         //.in( thisContractOwnerCredentials => {
 
+        // inlined
+        //
+        // checks that the currency symbol passed as parameter is present
         const isValidOracleRefIn = oracleRefIn.value.some( entry => entry.fst.eq( oracleCurrSymId ) ); 
             
-        // is actually a reference input form the oracle
+        // check that is actually a reference input form the oracle
         const oracleRefInComesFromContract = 
             pmatch( getOutCreds.$( oracleRefIn ) )
             .onPScriptCredential( ({ valHash }) => valHash.eq( oracleValHash ) )
@@ -147,6 +152,7 @@ const tedyYeildReserve = pfn([
 
         const ownInputIsValid = ownInputUtxoRef.eq( ownUtxoRef );
 
+        // see `forwardValidator` comment
         const fstInputIsForwarded = 
             pmatch( tx.inputs.head.resolved.address.credential )
             .onPScriptCredential(({ valHash }) =>
