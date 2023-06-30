@@ -5,7 +5,9 @@
 
 ```mermaid
 flowchart TD
+    botWallet
     bot[(bot)]
+    validRewardNFT{{validRewardNFT}}
     yeildReserveOwnerOracle
     tedyYeildReserve
     liquidityStakingContract
@@ -13,11 +15,14 @@ flowchart TD
 
     yeildReserveOwnerOracle -. owner ref .-> tedyYeildReserve
 
+    bot -. pkh param .-> validRewardNFT
+    validRewardNFT -- proofs valid UTxOs --> tedyYeildReserve
 
-    bot --creates utxos-->  tedyYeildReserve
+    botWallet --> bot --creates utxos-->  tedyYeildReserve
     
     tedyYeildReserve  == sends rewards ==> liquidityStakingContract
 
+    tedyYeildReserve -.hash param.-> botWallet
     liquidityStakingContract  == sends back rest ==> tedyYeildReserve
     liquidityStakingContract -. snapshots .-> bot
     liquidityStakingContract == mints on first deposit ==> liquidityStakingContract
