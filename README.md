@@ -7,8 +7,8 @@
 flowchart TD
     botWallet
     bot[(bot)]
-    validRewardNFT{{validRewardNFT}}
     yeildReserveOwnerOracle
+    validRewardNFT{{validRewardNFT}}
     tedyYeildReserve
     liquidityStakingContract
     user((user))
@@ -16,17 +16,17 @@ flowchart TD
     yeildReserveOwnerOracle -. owner ref .-> tedyYeildReserve
 
     bot -. pkh param .-> validRewardNFT
-    validRewardNFT -- proofs valid UTxOs --> tedyYeildReserve
+    validRewardNFT -- proofs utxos are valid --> tedyYeildReserve
 
     botWallet --> bot --creates utxos-->  tedyYeildReserve
     
     tedyYeildReserve  == sends rewards ==> liquidityStakingContract
 
     tedyYeildReserve -.hash param.-> botWallet
-    liquidityStakingContract  == sends back rest ==> tedyYeildReserve
-    liquidityStakingContract -. snapshots .-> bot
     liquidityStakingContract == mints on first deposit ==> liquidityStakingContract
     liquidityStakingContract  == sends rewards ==> user
+    liquidityStakingContract  == sends back rest ==> tedyYeildReserve
+    liquidityStakingContract -. snapshots .-> bot
 
     user == deposits / mints ==> liquidityStakingContract
     user == harvests ==> liquidityStakingContract
