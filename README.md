@@ -5,26 +5,26 @@
 
 ```mermaid
 flowchart TD
-    bot([bot])
+    bot[(bot)]
     yeildReserveOwnerOracle
     tedyYeildReserve
     liquidityStakingContract
     user((user))
 
-    liquidityStakingContract == mints on first deposit ==> liquidityStakingContract
-
     yeildReserveOwnerOracle -. owner ref .-> tedyYeildReserve
 
-    liquidityStakingContract -. snapshots .-> bot
-    bot -- creates utxos -->  tedyYeildReserve
 
+    bot --creates utxos-->  tedyYeildReserve
+    
     tedyYeildReserve  == sends rewards ==> liquidityStakingContract
 
     liquidityStakingContract  == sends back rest ==> tedyYeildReserve
+    liquidityStakingContract -. snapshots .-> bot
+    liquidityStakingContract == mints on first deposit ==> liquidityStakingContract
+    liquidityStakingContract  == sends rewards ==> user
 
     user == deposits / mints ==> liquidityStakingContract
     user == harvests ==> liquidityStakingContract
-    liquidityStakingContract  == sends rewards ==> user
 ```
 
 ## Local testing procedure

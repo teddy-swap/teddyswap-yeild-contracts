@@ -3,7 +3,7 @@ import { getOutCreds } from "../utils/getOutCreds";
 
 export const PReserveDatum = pstruct({
     PReserveDatum: {
-        // founds allocated to time
+        // time (epoch) to which founds are allocated to
         time: int,
         // snapshot of total staked supply for that time
         totStakedSupply: int,
