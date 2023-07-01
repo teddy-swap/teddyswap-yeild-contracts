@@ -5,6 +5,14 @@
 
 ```mermaid
 flowchart TD
+
+    subgraph legend
+        bot_legend[(pub key\nbot)]
+        user_legend((pub key\nuser))
+        validator
+        policy{{policy}}
+    end
+
     botWallet
     bot[(bot)]
     yeildReserveOwnerOracle
