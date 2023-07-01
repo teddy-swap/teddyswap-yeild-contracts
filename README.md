@@ -4,14 +4,17 @@
 ## contracts interactions 
 
 ```mermaid
-flowchart TD
-
+flowchart TD 
     subgraph legend
         bot_legend[(pub key\nbot)]
         user_legend((pub key\nuser))
         validator
         policy{{policy}}
     end
+```
+
+```mermaid
+flowchart TD
 
     botWallet
     bot[(bot)]
