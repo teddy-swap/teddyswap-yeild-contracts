@@ -13,11 +13,13 @@ flowchart TD
     liquidityStakingContract
     user((user))
 
-    yeildReserveOwnerOracle -. owner ref .-> tedyYeildReserve
 
     bot -. pkh param .-> validRewardNFT
     validRewardNFT -- proofs utxos are valid --> tedyYeildReserve
+    validRewardNFT  -.hash param.-> liquidityStakingContract
 
+    yeildReserveOwnerOracle -. owner ref .-> tedyYeildReserve
+    
     botWallet --> bot --creates utxos-->  tedyYeildReserve
     
     tedyYeildReserve  == sends rewards ==> liquidityStakingContract
