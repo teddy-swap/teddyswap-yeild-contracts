@@ -60,9 +60,13 @@ const validateIO_t = fn([
 
 const untyped_liquidityStakingContract = pfn([
     PValidatorHash.type,
-    // PCurrencySymbol.type,
+    // TEDY
     PCurrencySymbol.type,
     PTokenName.type,
+    // validRewardNFT
+    PCurrencySymbol.type,
+    PTokenName.type,
+    // contract
     DatumOrRdmr.type,
     RdmrOrCtx.type,
     // PScriptContext.type
@@ -72,6 +76,8 @@ const untyped_liquidityStakingContract = pfn([
     // ownHash,
     TEDY_policy,
     TEDY_tokenName,
+    validRewardNftSym,
+    validRewardNftName,
     datum_or_rdmr, rdmr_or_ctx //, ctx
 ) => 
     pmatch( rdmr_or_ctx )
@@ -236,7 +242,9 @@ const untyped_liquidityStakingContract = pfn([
                         stakingInfos.lpSym,
                         stakingInfos.lpName,
                         TEDY_policy,
-                        TEDY_tokenName
+                        TEDY_tokenName,
+                        validRewardNftSym,
+                        validRewardNftName,
                     )
                     // in both case these are the first three inputs
                     // so we partially apply
@@ -367,6 +375,8 @@ function mkValidateIO(
     thisLpName: UtilityTermOf<typeof PTokenName>,
     rewardsTokenSym : UtilityTermOf<typeof PCurrencySymbol>,
     rewardsTokenName: UtilityTermOf<typeof PTokenName>,
+    validRewardNftSym : UtilityTermOf<typeof PCurrencySymbol>,
+    validRewardNftName: UtilityTermOf<typeof PTokenName>,
 )
 {
 
@@ -401,7 +411,14 @@ function mkValidateIO(
                     .and( inDatum.lpTokenName.eq( thisLpName ) );
     
                 const inputFromReserve = isReserveValHash.$( getPaymentHash.$( input.address ) );
-                const outputToReserve = isReserveValHash.$( getPaymentHash.$( output.address ) ); 
+                const outputToSameReserveAddr = output.address.eq( input.address );
+
+                const getInputAmt = plet( pvalueOf.$( input.value ) );
+
+                const inputIsValid = getInputAmt
+                    .$( validRewardNftSym )
+                    .$( validRewardNftName )
+                    .gt( 0 )
 
                 const reserveDatumUnchanged = input.datum.eq( output.datum );
     
@@ -415,7 +432,7 @@ function mkValidateIO(
                     outputRewards
                     .eq(
                         plet(
-                            pvalueOf.$( input.value ).$( rewardsTokenSym ).$( rewardsTokenName )
+                            getInputAmt.$( rewardsTokenSym ).$( rewardsTokenName )
                         ).in( inputRewards =>
                             inputRewards.sub(
                                 inputRewards.mult( userStakedLp ).div( inDatum.totStakedSupply )
@@ -423,12 +440,26 @@ function mkValidateIO(
                         )
                     );
 
+                // needed to check anything others than rewards goes back to reserve
+                const restOfValueUnchanged = output.value.every( outEntry =>
+                    // skip the reward entry
+                    outEntry.fst.eq( rewardsTokenSym )
+                    .or(
+                        outEntry.snd.every( outAsset =>
+                            getInputAmt.$( outEntry.fst ).$( outAsset.fst )
+                            .eq( outAsset.snd )
+                        )
+                    )
+                );
+
                 return meantForThisLpToken
                 .and(  inputFromReserve )
-                .and(  outputToReserve )
+                .and(  inputIsValid )
+                .and(  outputToSameReserveAddr )
                 .and(  reserveDatumUnchanged )
                 .and(  correctTime )
                 .and(  correctRewards )
+                .and(  restOfValueUnchanged )
                 .and(
                     pif( bool ).$( pisEmpty.$( inputs.tail ) )
                     .then( inDatum.time.eq( upToTime ) )

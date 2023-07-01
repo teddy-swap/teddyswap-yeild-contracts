@@ -1,12 +1,14 @@
-import { PAddress, POutputDatum, PScriptContext, PTxOut, PTxOutRef, PValidatorHash, bool, data, perror, pfn, pif, plet, pmakeUnit, pmatch, punIData, unit } from "@harmoniclabs/plu-ts";
+import { PAddress, POutputDatum, PPubKeyHash, PScriptContext, PTxOut, PTxOutRef, PValidatorHash, bool, data, perror, pfn, pif, plet, pmakeUnit, pmatch, punIData, unit } from "@harmoniclabs/plu-ts";
 
 export const botWallet = pfn([
+    PPubKeyHash.type,
     PAddress.type, // where the output must go
     PAddress.type, // owner (claim back)
     data, // int (ownInputIndex)
     PScriptContext.type
 ],  unit)
 (( 
+    botPkh,
     yeildReserveAddr,
     ownerAddr, ownInputIndexData, { tx, purpose } ) => {
 
@@ -56,10 +58,13 @@ export const botWallet = pfn([
         .or( outStaysHere.$( out ) )
     );
 
+    const botSigned = tx.signatories.some( botPkh.eqTerm );
+
     return pif( unit ).$(
 
+        botSigned
         // is spendnd
-        ownInputIsValid
+        .and( ownInputIsValid )
         .and(
             // either 
             allOutsToReserve
