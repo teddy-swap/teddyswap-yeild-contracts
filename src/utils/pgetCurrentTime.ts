@@ -14,7 +14,7 @@ const pgetTimeFromBound = phoist(
 
 export const pgetLowerCurrentTime = phoist(
     plam( PPOSIXTimeRange.type, int )
-    ( ({ from }) =>pgetTimeFromBound.$( from.bound ) )
+    ( ({ from }) => pgetTimeFromBound.$( from.bound ) )
 )
 
 export const pgetUpperCurrentTime = phoist(

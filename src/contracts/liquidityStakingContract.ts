@@ -59,6 +59,7 @@ const validateIO_t = fn([
 ],  bool);
 
 const untyped_liquidityStakingContract = pfn([
+    // reserve
     PValidatorHash.type,
     // TEDY
     PCurrencySymbol.type,
@@ -410,7 +411,13 @@ function mkValidateIO(
                     inDatum.lpTokenCurrSym.eq( thisLpSym )
                     .and( inDatum.lpTokenName.eq( thisLpName ) );
     
-                const inputFromReserve = isReserveValHash.$( getPaymentHash.$( input.address ) );
+                const inputFromReserve =
+                    isReserveValHash.$( getPaymentHash.$( input.address ) )
+                    .and( //  no staking credentials
+                        pmatch( input.address.stakingCredential )
+                        .onJust( _ => perror( bool ) )
+                        .onNothing( _ => pBool( true ) )
+                    );
                 const outputToSameReserveAddr = output.address.eq( input.address );
 
                 const getInputAmt = plet( pvalueOf.$( input.value ) );
